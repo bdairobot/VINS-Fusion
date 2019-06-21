@@ -68,6 +68,8 @@ cv::Mat getImageFromMsg(const sensor_msgs::ImageConstPtr &img_msg)
 }
 
 // extract images with same timestamp from two topics
+/*How to sync: Initialized a queue, then pop according to the time difference -bdai*/
+
 void sync_process()
 {
     while(1)
@@ -257,6 +259,7 @@ int main(int argc, char **argv)
     ros::Subscriber sub_imu_switch = n.subscribe("/vins_imu_switch", 100, imu_switch_callback);
     ros::Subscriber sub_cam_switch = n.subscribe("/vins_cam_switch", 100, cam_switch_callback);
 
+    /* This thread will be killed when main() exited */
     std::thread sync_thread{sync_process};
     ros::spin();
 

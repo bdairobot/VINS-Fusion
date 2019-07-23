@@ -77,7 +77,7 @@ void RefineGravity(map<double, ImageFrame> &all_image_frame, Vector3d &g, Vector
 
     map<double, ImageFrame>::iterator frame_i;
     map<double, ImageFrame>::iterator frame_j;
-    for(int k = 0; k < 4; k++)
+    for(int k = 0; k < 4; k++) // why --bdai
     {
         MatrixXd lxly(3, 2);
         lxly = TangentBasis(g0);

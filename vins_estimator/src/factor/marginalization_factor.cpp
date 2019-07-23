@@ -120,6 +120,7 @@ void MarginalizationInfo::preMarginalize()
 {
     for (auto it : factors)
     {
+        // obtain residuals and jacobians
         it->Evaluate();
 
         std::vector<int> block_sizes = it->cost_function->parameter_block_sizes();
@@ -301,6 +302,7 @@ void MarginalizationInfo::marginalize()
     Eigen::VectorXd S_sqrt = S.cwiseSqrt();
     Eigen::VectorXd S_inv_sqrt = S_inv.cwiseSqrt();
 
+    // conver A to new jocobains to send to ceres, now linearized_jacobian^T * linearized_residuals equals origian b -- bdai
     linearized_jacobians = S_sqrt.asDiagonal() * saes2.eigenvectors().transpose();
     linearized_residuals = S_inv_sqrt.asDiagonal() * saes2.eigenvectors().transpose() * b;
     //std::cout << A << std::endl

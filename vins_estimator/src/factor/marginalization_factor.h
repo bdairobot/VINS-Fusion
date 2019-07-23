@@ -30,6 +30,7 @@ struct ResidualBlockInfo
 
     ceres::CostFunction *cost_function;
     ceres::LossFunction *loss_function;
+    // all parameters related with current cost function --bdai
     std::vector<double *> parameter_blocks;
     std::vector<int> drop_set;
 

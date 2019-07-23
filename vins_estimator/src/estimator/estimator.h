@@ -161,6 +161,7 @@ class Estimator
     MarginalizationInfo *last_marginalization_info;
     vector<double *> last_marginalization_parameter_blocks;
 
+    // store all frames in sliding window --bdai
     map<double, ImageFrame> all_image_frame;
     IntegrationBase *tmp_pre_integration;
 

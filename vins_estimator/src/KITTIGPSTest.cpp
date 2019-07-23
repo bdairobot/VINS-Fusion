@@ -164,6 +164,15 @@ int main(int argc, char** argv)
 			gps_position.longitude = lon;
 			gps_position.altitude  = alt;
 			gps_position.position_covariance[0] = pos_accuracy;
+			// std::ofstream foutC("/home/bdai/output/pos_accuracy.csv",ios::app);
+			// // assert(0);
+			// foutC.setf(ios::fixed, ios::floatfield);
+			// foutC.precision(0);
+			// foutC << imgTime * 1e9 << ",";
+			// foutC.precision(5);
+			// foutC << pos_accuracy << endl;
+			// foutC.close();
+
 			//printf("pos_accuracy %f \n", pos_accuracy);
 			pubGPS.publish(gps_position);
 

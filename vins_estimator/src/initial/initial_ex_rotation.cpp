@@ -24,6 +24,7 @@ bool InitialEXRotation::CalibrationExRotation(vector<pair<Vector3d, Vector3d>> c
     frame_count++;
     Rc.push_back(solveRelativeR(corres));
     Rimu.push_back(delta_q_imu.toRotationMatrix());
+    // R_{i_{k+1}}^{i_k}*R_i^b = R_i^b*R_{c_{k+1}}^{c_k}
     Rc_g.push_back(ric.inverse() * delta_q_imu * ric);
 
     Eigen::MatrixXd A(frame_count * 4, 4);

@@ -62,7 +62,7 @@ class FeaturePerId
 {
   public:
     const int feature_id;
-    /** tracking in continuous frames --bdai **/
+    /** tracking in continuous frames  --bdai */
     int start_frame; 
     vector<FeaturePerFrame> feature_per_frame;
     int used_num;

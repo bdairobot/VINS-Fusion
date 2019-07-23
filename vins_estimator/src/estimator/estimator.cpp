@@ -619,7 +619,7 @@ bool Estimator::initialStructure()
         }
         sfm_f.push_back(tmp_feature);
     } 
-    Matrix3d relative_R;
+    Matrix3d relative_R; // rotation matrix from lastest frame to frame l
     Vector3d relative_T;
     int l;
     if (!relativePose(relative_R, relative_T, l))
@@ -640,9 +640,11 @@ bool Estimator::initialStructure()
     //solve pnp for all frame
     map<double, ImageFrame>::iterator frame_it;
     map<int, Vector3d>::iterator it;
+    /* not many frames, because all_image_frame will be erased thoses time is before sliding window --bdai */
+    /* also all_image_frame used to store rotation of IMU istead of camera */
     frame_it = all_image_frame.begin( );
     for (int i = 0; frame_it != all_image_frame.end( ); frame_it++)
-    {
+    {   
         // provide initial guess
         cv::Mat r, rvec, t, D, tmp_r;
         if((frame_it->first) == Headers[i])
@@ -1174,6 +1176,7 @@ void Estimator::optimization()
                 ++feature_index;
 
                 int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
+                /* all features in Frame 0 --bdai */
                 if (imu_i != 0)
                     continue;
 
@@ -1229,6 +1232,7 @@ void Estimator::optimization()
         std::unordered_map<long, double *> addr_shift;
         for (int i = 1; i <= WINDOW_SIZE; i++)
         {
+            // to store last data, so next time, when access k+1, we can access the data of k --bdai
             addr_shift[reinterpret_cast<long>(para_Pose[i])] = para_Pose[i - 1];
             if(USE_IMU)
                 addr_shift[reinterpret_cast<long>(para_SpeedBias[i])] = para_SpeedBias[i - 1];

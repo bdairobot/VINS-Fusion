@@ -76,11 +76,11 @@ void GlobalOptimization::getGlobalOdom(Eigen::Vector3d &odomP, Eigen::Quaternion
     odomQ = lastQ;
 }
 
-void GlobalOptimization::inputGPS(double t, double latitude, double longitude, double altitude, double posAccuracy)
+void GlobalOptimization::inputGPS(double t, double latitude, double longitude, double altitude, double posAccuracy, double z_accuracy)
 {
 	double xyz[3];
 	GPS2XYZ(latitude, longitude, altitude, xyz);
-	vector<double> tmp{xyz[0], xyz[1], xyz[2], posAccuracy};
+	vector<double> tmp{xyz[0], xyz[1], xyz[2], posAccuracy, z_accuracy};
     //printf("new gps: t: %f x: %f y: %f z:%f \n", t, tmp[0], tmp[1], tmp[2]);
 	GPSPositionMap[t] = tmp;
     newGPS = true;
@@ -155,7 +155,7 @@ void GlobalOptimization::optimize()
                                                                                 iQj.w(), iQj.x(), iQj.y(), iQj.z(),
                                                                                 0.1, 0.01);
                     problem.AddResidualBlock(vio_function, NULL, q_array[i], t_array[i], q_array[i+1], t_array[i+1]);
-
+                    
                     /*
                     double **para = new double *[4];
                     para[0] = q_array[i];
@@ -190,7 +190,7 @@ void GlobalOptimization::optimize()
                 if (iterGPS != GPSPositionMap.end())
                 {
                     ceres::CostFunction* gps_function = TError::Create(iterGPS->second[0], iterGPS->second[1], 
-                                                                       iterGPS->second[2], iterGPS->second[3]);
+                                                                       iterGPS->second[2], iterGPS->second[3], iterGPS->second[4]);
                     //printf("inverse weight %f \n", iterGPS->second[3]);
                     problem.AddResidualBlock(gps_function, loss_function, t_array[i]);
 
@@ -213,7 +213,7 @@ void GlobalOptimization::optimize()
             }
             //mPoseMap.unlock();
             ceres::Solve(options, &problem, &summary);
-            //std::cout << summary.BriefReport() << "\n";
+            std::cout << summary.BriefReport() << "\n";
 
             // update global pose
             //mPoseMap.lock();

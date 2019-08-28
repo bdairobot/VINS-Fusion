@@ -99,7 +99,7 @@ void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
         double gps_t = GPS_msg->header.stamp.toSec();
         printf("vio t: %f, gps t: %f \n", t, gps_t);
         // 10ms sync tolerance
-        if(gps_t >= t - 0.01 && gps_t <= t + 0.01)
+        if(gps_t >= t - 0.02 && gps_t <= t + 0.02)
         {
             //printf("receive GPS with timestamp %f\n", GPS_msg->header.stamp.toSec());
             double latitude = GPS_msg->latitude;
@@ -111,7 +111,7 @@ void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
                 pos_accuracy = 1;
             //printf("receive covariance %lf \n", pos_accuracy);
             //if(GPS_msg->status.status > 8)
-                globalEstimator.inputGPS(t, latitude, longitude, altitude, pos_accuracy);
+                globalEstimator.inputGPS(t, latitude, longitude, altitude, sqrt(pos_accuracy), sqrt(GPS_msg->position_covariance[8]));
             gpsQueue.pop();
             break;
         }
@@ -165,8 +165,8 @@ int main(int argc, char **argv)
 
     global_path = &globalEstimator.global_path;
 
-    ros::Subscriber sub_GPS = n.subscribe("/gps", 100, GPS_callback);
-    ros::Subscriber sub_vio = n.subscribe("/vins_estimator/odometry", 100, vio_callback);
+    ros::Subscriber sub_GPS = n.subscribe("/mavros/global_position/raw/fix", 100, GPS_callback);
+    ros::Subscriber sub_vio = n.subscribe("/vins_estimator/keyframe_pose", 100, vio_callback);
     pub_global_path = n.advertise<nav_msgs::Path>("global_path", 100);
     pub_global_odometry = n.advertise<nav_msgs::Odometry>("global_odometry", 100);
     pub_car = n.advertise<visualization_msgs::MarkerArray>("car_model", 1000);

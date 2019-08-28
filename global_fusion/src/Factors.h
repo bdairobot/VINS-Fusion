@@ -25,27 +25,27 @@ void QuaternionInverse(const T q[4], T q_inverse[4])
 
 struct TError
 {
-	TError(double t_x, double t_y, double t_z, double var)
-				  :t_x(t_x), t_y(t_y), t_z(t_z), var(var){}
+	TError(double t_x, double t_y, double t_z, double var, double var_z)
+				  :t_x(t_x), t_y(t_y), t_z(t_z), var(var), var_z(var_z){}
 
 	template <typename T>
 	bool operator()(const T* tj, T* residuals) const
 	{
 		residuals[0] = (tj[0] - T(t_x)) / T(var);
 		residuals[1] = (tj[1] - T(t_y)) / T(var);
-		residuals[2] = (tj[2] - T(t_z)) / T(var);
+		residuals[2] = (tj[2] - T(t_z)) / T(var_z);
 
 		return true;
 	}
 
-	static ceres::CostFunction* Create(const double t_x, const double t_y, const double t_z, const double var) 
+	static ceres::CostFunction* Create(const double t_x, const double t_y, const double t_z, const double var,double var_z) 
 	{
 	  return (new ceres::AutoDiffCostFunction<
 	          TError, 3, 3>(
-	          	new TError(t_x, t_y, t_z, var)));
+	          	new TError(t_x, t_y, t_z, var, var_z)));
 	}
 
-	double t_x, t_y, t_z, var;
+	double t_x, t_y, t_z, var, var_z;
 
 };
 

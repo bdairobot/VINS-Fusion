@@ -40,6 +40,41 @@ ProjectionTwoFrameOneCamFactor::ProjectionTwoFrameOneCamFactor(const Eigen::Vect
 #endif
 };
 
+double ProjectionTwoFrameOneCamFactor::Norm_residual(double const *param0, double const *param1, double const *param2, double const *param3, double const *param4) const {
+    Eigen::Vector3d Pi(param0[0], param0[1], param0[2]);
+    Eigen::Quaterniond Qi(param0[6], param0[3], param0[4], param0[5]);
+
+    Eigen::Vector3d Pj(param1[0], param1[1], param1[2]);
+    Eigen::Quaterniond Qj(param1[6], param1[3], param1[4], param1[5]);
+
+    Eigen::Vector3d tic(param2[0], param2[1], param2[2]);
+    Eigen::Quaterniond qic(param2[6], param2[3], param2[4], param2[5]);
+
+    double inv_dep_i = param3[0];
+
+    double td = param4[0];
+
+    Eigen::Vector3d pts_i_td, pts_j_td;
+    pts_i_td = pts_i - (td - td_i) * velocity_i;
+    pts_j_td = pts_j - (td - td_j) * velocity_j;
+    Eigen::Vector3d pts_camera_i = pts_i_td / inv_dep_i;
+    Eigen::Vector3d pts_imu_i = qic * pts_camera_i + tic;
+    Eigen::Vector3d pts_w = Qi * pts_imu_i + Pi;
+    Eigen::Vector3d pts_imu_j = Qj.inverse() * (pts_w - Pj);
+    Eigen::Vector3d pts_camera_j = qic.inverse() * (pts_imu_j - tic);
+    Eigen::Vector2d residual;
+
+#ifdef UNIT_SPHERE_ERROR 
+    residual =  tangent_base * (pts_camera_j.normalized() - pts_j_td.normalized());
+#else
+    double dep_j = pts_camera_j.z();
+    residual = (pts_camera_j / dep_j).head<2>() - pts_j_td.head<2>();
+#endif
+
+    residual = sqrt_info * residual;
+    return residual.transpose()*residual;
+}
+
 bool ProjectionTwoFrameOneCamFactor::Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
 {
     TicToc tic_toc;

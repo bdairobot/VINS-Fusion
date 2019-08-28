@@ -25,6 +25,32 @@ class IMUFactor : public ceres::SizedCostFunction<15, 7, 9, 7, 9>
     IMUFactor(IntegrationBase* _pre_integration):pre_integration(_pre_integration)
     {
     }
+    double Norm_residual(double const *param0, double const *param1, double const *param2, double const *param3) const{
+        Eigen::Vector3d Pi(param0[0], param0[1], param0[2]);
+        Eigen::Quaterniond Qi(param0[6], param0[3], param0[4], param0[5]);
+
+        Eigen::Vector3d Vi(param1[0], param1[1], param1[2]);
+        Eigen::Vector3d Bai(param1[3], param1[4], param1[5]);
+        Eigen::Vector3d Bgi(param1[6], param1[7], param1[8]);
+
+        Eigen::Vector3d Pj(param2[0], param2[1], param2[2]);
+        Eigen::Quaterniond Qj(param2[6], param2[3], param2[4], param2[5]);
+
+        Eigen::Vector3d Vj(param3[0], param3[1], param3[2]);
+        Eigen::Vector3d Baj(param3[3], param3[4], param3[5]);
+        Eigen::Vector3d Bgj(param3[6], param3[7], param3[8]);
+
+
+        Eigen::Matrix<double, 15, 1> residual = pre_integration->evaluate(Pi, Qi, Vi, Bai, Bgi,
+                                            Pj, Qj, Vj, Baj, Bgj);
+
+        Eigen::Matrix<double, 15, 15> sqrt_info = Eigen::LLT<Eigen::Matrix<double, 15, 15>>
+        (pre_integration->covariance.inverse()).matrixL().transpose();
+        //sqrt_info.setIdentity();
+        // std::cout << "sqrt_info: " << sqrt_info.block<3,3>(0,0) << std::endl;
+        residual = sqrt_info * residual;
+        return residual.block<3,1>(0,0).transpose()*residual.block<3,1>(0,0);
+    }
     virtual bool Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
     {
 

@@ -30,6 +30,7 @@ static double sum_of_path = 0;
 static Vector3d last_path(0.0, 0.0, 0.0);
 
 size_t pub_counter = 0;
+int error_flag = 0;
 
 void registerPub(ros::NodeHandle &n)
 {
@@ -141,6 +142,31 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
         odometry.twist.twist.linear.x = estimator.Vs[WINDOW_SIZE].x();
         odometry.twist.twist.linear.y = estimator.Vs[WINDOW_SIZE].y();
         odometry.twist.twist.linear.z = estimator.Vs[WINDOW_SIZE].z();
+        // printf("estimator.f_manager.feature length: %d\n", estimator.f_manager.feature.size());
+        // for (auto &it_per_id : estimator.f_manager.feature) {
+        //     printf("feature_id: %d; start_frame: %d; view_num: %d; depth: %8.4f \n", it_per_id.feature_id, it_per_id.start_frame, it_per_id.used_num,it_per_id.estimated_depth);
+        // }
+
+        int count = 0;
+        double sum_depth = 0.0;
+        for (auto rit = estimator.f_manager.feature.rbegin(); rit != estimator.f_manager.feature.rend(); ++rit){
+            if (rit->estimated_depth == -1.0 || rit->used_num < 3)
+                continue;
+            count++;
+            sum_depth += rit->estimated_depth;
+            if (count > 25)
+                break;
+        }
+        double ave_depth = sum_depth / count;
+        if (ave_depth > 50)
+            ave_depth = 50;
+        // std::cout << "ave_depth = " << ave_depth << std::endl << std::endl;
+        odometry.pose.covariance[0] = odometry.pose.covariance[7] = odometry.pose.covariance[14] = (VIO_POS_ACCURACY * ave_depth)*(VIO_POS_ACCURACY * ave_depth);
+        odometry.pose.covariance[21] = odometry.pose.covariance[28] = odometry.pose.covariance[35]= VIO_Q_ACCURACY * VIO_Q_ACCURACY;
+        if (error_flag < 0){
+            odometry.pose.covariance[0] = (double)error_flag;
+        }
+
         pub_odometry.publish(odometry);
 
         geometry_msgs::PoseStamped pose_stamped;
@@ -170,8 +196,8 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
               << estimator.Vs[WINDOW_SIZE].z() << "," << endl;
         foutC.close();
         Eigen::Vector3d tmp_T = estimator.Ps[WINDOW_SIZE];
-        printf("time: %f, t: %f %f %f q: %f %f %f %f \n", header.stamp.toSec(), tmp_T.x(), tmp_T.y(), tmp_T.z(),
-                                                          tmp_Q.w(), tmp_Q.x(), tmp_Q.y(), tmp_Q.z());
+/*         printf("time: %f, t: %f %f %f q: %f %f %f %f \n", header.stamp.toSec(), tmp_T.x(), tmp_T.y(), tmp_T.z(),
+                                                          tmp_Q.w(), tmp_Q.x(), tmp_Q.y(), tmp_Q.z()); */
     }
 }
 
@@ -375,6 +401,40 @@ void pubKeyframe(const Estimator &estimator)
         odometry.pose.pose.orientation.z = R.z();
         odometry.pose.pose.orientation.w = R.w();
         //printf("time: %f t: %f %f %f r: %f %f %f %f\n", odometry.header.stamp.toSec(), P.x(), P.y(), P.z(), R.w(), R.x(), R.y(), R.z());
+
+        list<double> depth_list;
+        for (auto rit = estimator.f_manager.feature.begin(); rit != estimator.f_manager.feature.end(); ++rit){
+            if (rit->start_frame <= 7 && rit->used_num >= 4 && rit->start_frame + rit->used_num >=8)
+            {
+                if (rit->estimated_depth == -1.0 || rit->estimated_depth == 5.0)
+                    continue;
+                Eigen::Vector3d p_j = estimator.ric[0].inverse()*(estimator.Rs[WINDOW_SIZE - 2].inverse()*(estimator.Rs[rit->start_frame]*(estimator.ric[0]*(rit->feature_per_frame[0].point*rit->estimated_depth) + estimator.tic[0]) + estimator.Ps[rit->start_frame]) - estimator.Ps[WINDOW_SIZE - 2]) - estimator.tic[0];
+                if (p_j(2) < 0.1) continue;
+                list<double>::iterator it = depth_list.begin();
+                while(it != depth_list.end()){
+                    if (p_j(2) >= *it) it++;
+                    else break;
+                }
+                depth_list.insert(it, p_j(2));
+              
+            }
+        }
+        double ave_depth = 0.0;
+        list<double>::iterator it = depth_list.begin();
+        for (uint i = 1; i < depth_list.size()/2; it++, i++){
+            ave_depth = ave_depth + (*it - ave_depth)/i;
+        }
+        if (ave_depth > 50)
+            ave_depth = 50;
+        // std::cout << "ave_depth = " << ave_depth << std::endl << std::endl;
+        odometry.pose.covariance[0] = odometry.pose.covariance[7] = odometry.pose.covariance[14] = (VIO_POS_ACCURACY * ave_depth)*(VIO_POS_ACCURACY * ave_depth);
+        odometry.pose.covariance[21] = odometry.pose.covariance[28] = odometry.pose.covariance[35]= VIO_Q_ACCURACY * VIO_Q_ACCURACY;
+        if (error_flag < 0){
+            odometry.pose.covariance[0] = (double)error_flag;
+        }
+
+
+
 
         pub_keyframe_pose.publish(odometry);
 

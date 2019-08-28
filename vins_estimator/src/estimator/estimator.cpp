@@ -177,7 +177,7 @@ void Estimator::inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1)
     
     if(MULTIPLE_THREAD)  
     {     
-        if(inputImageCnt % 2 == 0)
+        if(inputImageCnt % 3 == 0)
         {
             mBuf.lock();
             featureBuf.push(make_pair(t, featureFrame));
@@ -1043,20 +1043,24 @@ void Estimator::optimization()
         problem.AddResidualBlock(marginalization_factor, NULL,
                                  last_marginalization_parameter_blocks);
     }
+    queue<pair<IMUFactor*,vector<int>>> constrains_imu;    
     if(USE_IMU)
-    {
+    {   
         for (int i = 0; i < frame_count; i++)
         {
             int j = i + 1;
             if (pre_integrations[j]->sum_dt > 10.0)
                 continue;
             IMUFactor* imu_factor = new IMUFactor(pre_integrations[j]);
+            constrains_imu.push(make_pair(imu_factor,vector<int>{i,j}));
+
             problem.AddResidualBlock(imu_factor, NULL, para_Pose[i], para_SpeedBias[i], para_Pose[j], para_SpeedBias[j]);
         }
     }
 
     int f_m_cnt = 0;
     int feature_index = -1;
+    queue<pair<ProjectionTwoFrameOneCamFactor*,vector<int>>> constrains_pts;
     for (auto &it_per_id : f_manager.feature)
     {
         it_per_id.used_num = it_per_id.feature_per_frame.size();
@@ -1068,7 +1072,7 @@ void Estimator::optimization()
         int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
         
         Vector3d pts_i = it_per_id.feature_per_frame[0].point;
-
+        
         for (auto &it_per_frame : it_per_id.feature_per_frame)
         {
             imu_j++;
@@ -1077,6 +1081,7 @@ void Estimator::optimization()
                 Vector3d pts_j = it_per_frame.point;
                 ProjectionTwoFrameOneCamFactor *f_td = new ProjectionTwoFrameOneCamFactor(pts_i, pts_j, it_per_id.feature_per_frame[0].velocity, it_per_frame.velocity,
                                                                  it_per_id.feature_per_frame[0].cur_td, it_per_frame.cur_td);
+                constrains_pts.push(make_pair(f_td,vector<int>{imu_i,imu_j,feature_index}));
                 problem.AddResidualBlock(f_td, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0], para_Feature[feature_index], para_Td[0]);
             }
 
@@ -1102,6 +1107,8 @@ void Estimator::optimization()
     }
 
     ROS_DEBUG("visual measurement count: %d", f_m_cnt);
+
+
     //printf("prepare for ceres: %f \n", t_prepare.toc());
 
     ceres::Solver::Options options;
@@ -1129,6 +1136,84 @@ void Estimator::optimization()
 
     if(frame_count < WINDOW_SIZE)
         return;
+
+    error_flag = 0;
+
+    { // perform imu check
+        uint counter[5] = {0,0,0,0,0};
+        while(!constrains_imu.empty()){
+            int i = constrains_imu.front().second[0];
+            int j = constrains_imu.front().second[1];
+            double residual_square = constrains_imu.front().first->Norm_residual(para_Pose[i], para_SpeedBias[i], para_Pose[j], para_SpeedBias[j]);
+            // ROS_INFO("residual_square: %8.4f", residual_square);
+            // if (j != frame_count){
+                counter[0]++;
+                if (residual_square < 0.001)
+                    counter[1]++;
+                if (residual_square < 0.01) 
+                    counter[2]++;
+                if (residual_square < 0.05)
+                    counter[3]++;
+                if (residual_square < 0.1)
+                    counter[4]++;
+            // }
+            constrains_imu.pop();
+        }   
+        // ROS_WARN("Total number: %u. Threthhold number: %u, %u, %u, %u", counter[0],counter[1],counter[2],counter[3], counter[4]);
+        static int warning_counter = 0;
+        if (counter[2] >= 8 || counter[1] >= 5) {
+            ROS_WARN("VIO Warning!");
+            warning_counter++;
+        }  else warning_counter = 0;
+        if (warning_counter >= 5)
+            ROS_ERROR("VIO Error!");
+            error_flag |= 1<<0;
+    }
+
+    {// perform vision check
+        uint counter_min[3] = {0,0,0};
+        uint counter_max[4] = {1,0,0,0};
+        while(!constrains_pts.empty()){
+            int imu_i = constrains_pts.front().second[0];
+            int imu_j = constrains_pts.front().second[1];
+            if (imu_j != 9){
+                constrains_pts.pop();
+                continue;
+            }
+            int feature_index = constrains_pts.front().second[2];
+            double residual_square = constrains_pts.front().first->Norm_residual(para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0], para_Feature[feature_index], para_Td[0]);
+            // ROS_INFO ("residual_square: %10.6f", residual_square);
+
+            double scale = 0.5;
+            counter_max[0]++;
+            if (residual_square > 4.605 * scale)
+                counter_max[1]++;
+            if (residual_square > 5.991	* scale) 
+                counter_max[2]++;
+            if (residual_square > 9.210 * scale)
+                counter_max[3]++;
+            
+            if (residual_square < 0.211 * scale)
+                counter_min[0]++;
+            if (residual_square < 0.103 * scale)
+                counter_min[1]++;
+            if (residual_square < 0.051 * scale)
+                counter_min[2]++;
+                
+            constrains_pts.pop();
+        }
+        //ROS_INFO("feature_index: %u, constrain:%u, counter_max:%u, %u, %u, counter_min: %u, %u, %u", feature_index, counter_max[0],counter_max[1]*100/counter_max[0],counter_max[2]*100/counter_max[0],counter_max[3]*100/counter_max[0], counter_min[0]*100/counter_max[0],counter_min[1]*100/counter_max[0],counter_min[2]*100/counter_max[0]);
+        {
+            static int warning_counter = 0;
+            if (counter_max[2]*100/counter_max[0] >= 75 || counter_min[1]*100/counter_max[0] >= 75) {
+                    ROS_WARN("VIO Warning!, VISION MATCH");
+                    warning_counter++;
+            }  else warning_counter = 0;
+            if (warning_counter >= 5)
+                ROS_ERROR("VIO Error! VISION MATCH");
+                error_flag |= 1<<1;
+        }
+    }
 
     TicToc t_whole_marginalization;
     if (marginalization_flag == MARGIN_OLD)

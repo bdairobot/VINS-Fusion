@@ -24,6 +24,7 @@ class ProjectionTwoFrameOneCamFactor : public ceres::SizedCostFunction<2, 7, 7, 
     ProjectionTwoFrameOneCamFactor(const Eigen::Vector3d &_pts_i, const Eigen::Vector3d &_pts_j,
     				   const Eigen::Vector2d &_velocity_i, const Eigen::Vector2d &_velocity_j,
     				   const double _td_i, const double _td_j);
+    double Norm_residual(double const *param0, double const *param1, double const *param2, double const *param3, double const *param4) const;
     virtual bool Evaluate(double const *const *parameters, double *residuals, double **jacobians) const;
     void check(double **parameters);
 

@@ -46,6 +46,9 @@ double F_THRESHOLD;
 int SHOW_TRACK;
 int FLOW_BACK;
 
+double VIO_POS_ACCURACY;
+double VIO_Q_ACCURACY;
+
 
 template <typename T>
 T readParam(ros::NodeHandle &n, std::string name)
@@ -188,6 +191,9 @@ void readParameters(std::string config_file)
     ROW = fsSettings["image_height"];
     COL = fsSettings["image_width"];
     ROS_INFO("ROW: %d COL: %d ", ROW, COL);
+
+    VIO_POS_ACCURACY = fsSettings["vio_pos_accuracy_norm_plan"];
+    VIO_Q_ACCURACY = fsSettings["vio_q_accuracy_norm_plan"];
 
     if(!USE_IMU)
     {

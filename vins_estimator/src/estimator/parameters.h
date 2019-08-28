@@ -64,6 +64,9 @@ extern double F_THRESHOLD;
 extern int SHOW_TRACK;
 extern int FLOW_BACK;
 
+extern double VIO_POS_ACCURACY;
+extern double VIO_Q_ACCURACY;
+
 void readParameters(std::string config_file);
 
 enum SIZE_PARAMETERIZATION

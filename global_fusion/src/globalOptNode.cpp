@@ -81,7 +81,7 @@ void GPS_callback(const sensor_msgs::NavSatFixConstPtr &GPS_msg)
 void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
 {
     //printf("vio_callback! \n");
-    double t = pose_msg->header.stamp.toSec();
+    double t = pose_msg->header.stamp.toSec() + 1565856889.947691;
     last_vio_t = t;
     Eigen::Vector3d vio_t(pose_msg->pose.pose.position.x, pose_msg->pose.pose.position.y, pose_msg->pose.pose.position.z);
     Eigen::Quaterniond vio_q;
@@ -97,7 +97,7 @@ void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
     {
         sensor_msgs::NavSatFixConstPtr GPS_msg = gpsQueue.front();
         double gps_t = GPS_msg->header.stamp.toSec();
-        printf("vio t: %f, gps t: %f \n", t, gps_t);
+        // printf("vio t: %f, gps t: %f \n", t, gps_t);
         // 10ms sync tolerance
         if(gps_t >= t - 0.02 && gps_t <= t + 0.02)
         {
@@ -115,9 +115,9 @@ void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
             gpsQueue.pop();
             break;
         }
-        else if(gps_t < t - 0.01)
+        else if(gps_t < t - 0.02)
             gpsQueue.pop();
-        else if(gps_t > t + 0.01)
+        else if(gps_t > t + 0.02)
             break;
     }
     m_buf.unlock();

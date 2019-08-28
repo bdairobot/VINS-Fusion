@@ -7,20 +7,19 @@
  *******************************************************/
 
 #include "globalOptTest.h"
-#include "Factors.h"
 #include "factors/baroFactor.h"
 #include "factors/GPSFactor.h"
 #include "factors/VIOFactor.h"
-#include "factors/magFactor.h"
 #include "factors/attFactor.h"
+#include "factors/attFactorAuto.h"
+#include "factors/VIOFactorAuto.h"
 
 GlobalOptimization::GlobalOptimization()
 {
     newGPS = false;
     newBaro = false;
-    newMag = false;
     newAtt = false;
-    mag_init = false;
+    att_init = false;
     mag_decl[0][0] = -0.0 / 180.0 * 3.14159;
 	WGPS_T_WVIO = Eigen::Matrix4d::Identity();
     threadOpt = std::thread(&GlobalOptimization::optimize, this);
@@ -84,18 +83,12 @@ void GlobalOptimization::inputAtt(double att_t, vector<double> &Att)
     newAtt = true;
 }
 
-void GlobalOptimization::inputMag(double mag_t, vector<double> &Mag)
-{
-    magMap.insert(make_pair(mag_t, Mag));
-    newMag = true;
-}
-
 void GlobalOptimization::optimize()
 {
     while(true){
-        if(newGPS || newBaro || newMag || newAtt){
+        if(newGPS || newAtt || newBaro){
             std::cout << "global optimization!" << std::endl;
-            newGPS = newBaro = newMag = false;
+            newGPS = newBaro = newAtt = false;
             ceres::Problem problem;
             ceres::Solver::Options options;
             options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
@@ -130,71 +123,76 @@ void GlobalOptimization::optimize()
             }
             // add mag decline degree
             problem.AddParameterBlock(mag_decl[0], 1);
-            std::cout << "VIO size: " << localPoseMap.size() << " GPS size: " << GPSPositionMap.size() << " ATT size: " << attMap.size() << " Baro size: " << baroMap.size() << std::endl;
+            problem.SetParameterBlockConstant(mag_decl[0]);
+            std::cout << "mag_decl: " << mag_decl[0][0] * 180.0/3.14159 << " VIO size: " << localPoseMap.size() << " GPS size: " << GPSPositionMap.size() << " ATT size: " << attMap.size() << " Baro size: " << baroMap.size() << std::endl;
 
-            map<double, vector<double>>::iterator iterVIO, iterVIONext, iterGPS, iterBaro, iterMag, iterAtt;
+            map<double, vector<double>>::iterator iterVIO, iterVIONext, iterGPS, iterBaro, iterAtt;
             int i = 0;
             for (iterVIO = localPoseMap.begin(); iterVIO != localPoseMap.end(); iterVIO++, i++){
                 // add vio factor
                 iterVIONext = iterVIO;
                 iterVIONext++;
                 if(iterVIONext != localPoseMap.end()){
-                    Eigen::Vector3d p_i(iterVIO->second[0], iterVIO->second[1], iterVIO->second[2]);
-                    Eigen::Quaterniond q_i(iterVIO->second[3], iterVIO->second[4], iterVIO->second[5], iterVIO->second[6]);
-                    Eigen::Vector3d p_j(iterVIONext->second[0], iterVIONext->second[1], iterVIONext->second[2]);
-                    Eigen::Quaterniond q_j(iterVIONext->second[3], iterVIONext->second[4], iterVIONext->second[5], iterVIONext->second[6]);
+                    // Eigen::Vector3d p_i(iterVIO->second[0], iterVIO->second[1], iterVIO->second[2]);
+                    // Eigen::Quaterniond q_i(iterVIO->second[3], iterVIO->second[4], iterVIO->second[5], iterVIO->second[6]);
+                    // Eigen::Vector3d p_j(iterVIONext->second[0], iterVIONext->second[1], iterVIONext->second[2]);
+                    // Eigen::Quaterniond q_j(iterVIONext->second[3], iterVIONext->second[4], iterVIONext->second[5], iterVIONext->second[6]);
                    
-                    // VIOFactors* vio_cost = new VIOFactors(p_i, q_i, p_j, q_j, 1.0, 1.0);
+                    // // VIOFactors* vio_cost = new VIOFactors(p_i, q_i, p_j, q_j, 1.0, 1.0);
+                    // VIOFactors* vio_cost = new VIOFactors(p_i, q_i, p_j, q_j, 0.1, 0.01);
+                    // problem.AddResidualBlock(vio_cost, loss_function, t_array_xy[i], t_array_z[i], q_array[i], t_array_xy[i+1], t_array_z[i+1], q_array[i+1]);
 
-                    VIOFactors* vio_cost = new VIOFactors(p_i, q_i, p_j, q_j, sqrt(iterVIO->second[7] + iterVIONext->second[7]), sqrt(iterVIO->second[8] + iterVIONext->second[8]));
-                    problem.AddResidualBlock(vio_cost, nullptr, t_array_xy[i], t_array_z[i], q_array[i], t_array_xy[i+1], t_array_z[i+1], q_array[i+1]);
+                    // double **param = new double* [6];
+                    // param[0] = t_array_xy[i];
+                    // param[1] = t_array_z[i];
+                    // param[2] = q_array[i];
+                    // param[3] = t_array_xy[i+1];
+                    // param[4] = t_array_z[i+1];
+                    // param[5] = q_array[i+1];
+                    // vio_cost->check(param);
 
-                    double **param = new double* [6];
-                    param[0] = t_array_xy[i];
-                    param[1] = t_array_z[i];
-                    param[2] = q_array[i];
-                    param[3] = t_array_xy[i+1];
-                    param[4] = t_array_z[i+1];
-                    param[5] = q_array[i+1];
-                    vio_cost->check(param);
+                     Eigen::Matrix4d wTi = Eigen::Matrix4d::Identity();
+                    Eigen::Matrix4d wTj = Eigen::Matrix4d::Identity();
+                    wTi.block<3, 3>(0, 0) = Eigen::Quaterniond(iterVIO->second[3], iterVIO->second[4], 
+                                                               iterVIO->second[5], iterVIO->second[6]).toRotationMatrix();
+                    wTi.block<3, 1>(0, 3) = Eigen::Vector3d(iterVIO->second[0], iterVIO->second[1], iterVIO->second[2]);
+                    wTj.block<3, 3>(0, 0) = Eigen::Quaterniond(iterVIONext->second[3], iterVIONext->second[4], 
+                                                               iterVIONext->second[5], iterVIONext->second[6]).toRotationMatrix();
+                    wTj.block<3, 1>(0, 3) = Eigen::Vector3d(iterVIONext->second[0], iterVIONext->second[1], iterVIONext->second[2]);
+                    Eigen::Matrix4d iTj = wTi.inverse() * wTj;
+                    Eigen::Quaterniond iQj;
+                    iQj = iTj.block<3, 3>(0, 0);
+                    Eigen::Vector3d iPj = iTj.block<3, 1>(0, 3);
+
+                    ceres::CostFunction* vio_function = VIOFactorAuto::Create(iPj.x(), iPj.y(), iPj.z(),
+                                                                                iQj.w(), iQj.x(), iQj.y(), iQj.z(),
+                                                                                0.1, 0.01);
+                    problem.AddResidualBlock(vio_function, loss_function, q_array[i], t_array_xy[i], t_array_z[i], q_array[i+1], t_array_xy[i+1],t_array_z[i+1]);
                 }
                 double t = iterVIO->first;
 
                 /* gps factor */
-                iterGPS = GPSPositionMap.find(t);
-                if (iterGPS != GPSPositionMap.end()){
-                    GPSFactor* gps_cost = new GPSFactor(iterGPS->second[0], iterGPS->second[1], iterGPS->second[2], sqrt(iterGPS->second[3]), 100);
-                    problem.AddResidualBlock(gps_cost, loss_function, t_array_xy[i], t_array_z[i]);
+                // iterGPS = GPSPositionMap.find(t);
+                // if (iterGPS != GPSPositionMap.end()){
+                //     GPSFactor* gps_cost = new GPSFactor(iterGPS->second[0], iterGPS->second[1], iterGPS->second[2], sqrt(iterGPS->second[3]), sqrt(iterGPS->second[4]));
+                //     problem.AddResidualBlock(gps_cost, nullptr, t_array_xy[i], t_array_z[i]);
                     // double **param = new double* [2];
                     // param[0] = t_array_xy[i];
                     // param[1] = t_array_z[i];
                     // gps_cost->check(param);
-                }
+                // }
                 /* baro factor */
-                // iterBaro = baroMap.find(t);
-                // if (iterBaro != baroMap.end()){
-                //     BaroFactor* baro_cost = new BaroFactor(iterBaro->second[0], sqrt(iterBaro->second[1]));
-                //     problem.AddResidualBlock(baro_cost, loss_function, t_array_z[i]);
-                // }
-                /* mag factor */
-                // iterMag = magMap.find(t);
-                // if (iterMag != magMap.end()){
-                //     MagFactor* mag_cost = new MagFactor(iterMag->second[0], iterMag->second[1], iterMag->second[2], sqrt(iterMag->second[3]));
-                //     problem.AddResidualBlock(mag_cost, loss_function, q_array[i], mag_decl[0]);
-                //     // double **param = new double*[2];
-                //     // param[0] = q_array[i];
-                //     // param[1] = &mag_decl;
-                //     // mag_cost->check(param);
-                // }
+                iterBaro = baroMap.find(t);
+                if (iterBaro != baroMap.end()){
+                    BaroFactor* baro_cost = new BaroFactor(iterBaro->second[0], sqrt(iterBaro->second[1]));
+                    problem.AddResidualBlock(baro_cost, loss_function, t_array_z[i]);
+                }
 
                 /* att factor */
                 iterAtt = attMap.find(t);
                 if (iterAtt != attMap.end()){
-                    AttFactor* att_cost = new AttFactor(iterAtt->second[0], iterAtt->second[1], iterAtt->second[2],iterAtt->second[3], sqrt(iterAtt->second[4]));
-                    problem.AddResidualBlock(att_cost, loss_function, q_array[i]);
-                    // double **param = new double*[1];
-                    // param[0] = q_array[i];
-                    // att_cost->check(param);
+                    ceres::CostFunction* att_cost = attFactorAuto::Create(iterAtt->second[0], iterAtt->second[1], iterAtt->second[2],iterAtt->second[3], sqrt(iterAtt->second[4]));
+                    problem.AddResidualBlock(att_cost, nullptr, q_array[i], mag_decl[0]);
                 }
             }
             mPoseMap.unlock();

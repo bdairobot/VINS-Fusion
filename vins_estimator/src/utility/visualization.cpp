@@ -404,7 +404,7 @@ void pubKeyframe(const Estimator &estimator)
 
         list<double> depth_list;
         for (auto rit = estimator.f_manager.feature.begin(); rit != estimator.f_manager.feature.end(); ++rit){
-            if (rit->start_frame <= 7 && rit->used_num >= 4 && rit->start_frame + rit->used_num >=8)
+            if (rit->start_frame <= 7 && rit->used_num >= 3 && rit->start_frame + rit->used_num >=8)
             {
                 if (rit->estimated_depth == -1.0 || rit->estimated_depth == 5.0)
                     continue;
@@ -423,7 +423,10 @@ void pubKeyframe(const Estimator &estimator)
         list<double>::iterator it = depth_list.begin();
         for (uint i = 1; i < depth_list.size()/2; it++, i++){
             ave_depth = ave_depth + (*it - ave_depth)/i;
-        }
+        } 
+        if (ave_depth == 0.0) ave_depth = 50;
+        else if(depth_list.size() < 10) ave_depth = (ave_depth<10) ? ave_depth : 10;
+        else if(depth_list.size() < 50) ave_depth = (ave_depth<5) ? ave_depth : 5;
         if (ave_depth > 50)
             ave_depth = 50;
         // std::cout << "ave_depth = " << ave_depth << std::endl << std::endl;

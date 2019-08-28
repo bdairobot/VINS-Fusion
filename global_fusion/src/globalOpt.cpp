@@ -128,7 +128,7 @@ void GlobalOptimization::optimize()
                 problem.AddParameterBlock(q_array[i], 4, local_parameterization);
                 problem.AddParameterBlock(t_array[i], 3);
             }
-
+            std::cout << "globalPoseMap.size(): " << globalPoseMap.size() << std::endl;
             map<double, vector<double>>::iterator iterVIO, iterVIONext, iterGPS;
             int i = 0;
             for (iterVIO = localPoseMap.begin(); iterVIO != localPoseMap.end(); iterVIO++, i++)

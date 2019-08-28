@@ -85,30 +85,31 @@ public:
         jaco[5] = new double[6*4];
 
         Evaluate(parameters, res, jaco);
-        puts("check begins");
+        // puts("check begins");
 
-        puts("my");
-        std::cout << Eigen::Map<Eigen::Matrix<double, 6, 1>> (res).transpose() << std::endl << std::endl;
-        std::cout << Eigen::Map<Eigen::Matrix<double, 6, 2, Eigen::RowMajor>> (jaco[0]) << std::endl << std::endl;
-        std::cout << Eigen::Map<Eigen::Matrix<double, 6, 1>> (jaco[1]) << std::endl << std::endl;
-        std::cout << Eigen::Map<Eigen::Matrix<double, 6, 4, Eigen::RowMajor>> (jaco[2]) << std::endl << std::endl;
-        std::cout << Eigen::Map<Eigen::Matrix<double, 6, 2, Eigen::RowMajor>> (jaco[3]) << std::endl << std::endl;
-        std::cout << Eigen::Map<Eigen::Matrix<double, 6, 1>> (jaco[4]) << std::endl << std::endl;
-        std::cout << Eigen::Map<Eigen::Matrix<double, 6, 4, Eigen::RowMajor>> (jaco[5]) << std::endl << std::endl;
+        // puts("my");
+        if (sqrt(res[0]*res[0] + res[1]*res[1]) > 0.1 || res[3] > 0.02 || res[4] > 0.02 || res[4] > 0.02)
+            std::cout << Eigen::Map<Eigen::Matrix<double, 6, 1>> (res).transpose() << std::endl;
+        // std::cout << Eigen::Map<Eigen::Matrix<double, 6, 2, Eigen::RowMajor>> (jaco[0]) << std::endl << std::endl;
+        // std::cout << Eigen::Map<Eigen::Matrix<double, 6, 1>> (jaco[1]) << std::endl << std::endl;
+        // std::cout << Eigen::Map<Eigen::Matrix<double, 6, 4, Eigen::RowMajor>> (jaco[2]) << std::endl << std::endl;
+        // std::cout << Eigen::Map<Eigen::Matrix<double, 6, 2, Eigen::RowMajor>> (jaco[3]) << std::endl << std::endl;
+        // std::cout << Eigen::Map<Eigen::Matrix<double, 6, 1>> (jaco[4]) << std::endl << std::endl;
+        // std::cout << Eigen::Map<Eigen::Matrix<double, 6, 4, Eigen::RowMajor>> (jaco[5]) << std::endl << std::endl;
         
         Eigen::Vector3d p_w_i(parameters[0][0], parameters[0][1], parameters[1][0]);
         // Eigen::Quaterniond q_w_i(parameters[1]); // Cannot use this, because Eigen store quaternion as: x, y, z, w. But construct as w, x, y, z
         Eigen::Quaterniond q_w_i(parameters[2][0], parameters[2][1], parameters[2][2], parameters[2][3]);
         Eigen::Vector3d p_w_j(parameters[3][0], parameters[3][1], parameters[4][0]);
         Eigen::Quaterniond q_w_j(parameters[5][0], parameters[5][1], parameters[5][2], parameters[5][3]);
-        std::cout << "W: pi " << p_w_i.transpose() << " qi "<< q_w_i.vec().transpose() << " pj " << p_w_j << " q_j " << q_w_j.vec().transpose();
+        // std::cout << "W: pi " << p_w_i.transpose() << " qi "<< q_w_i.vec().transpose() << " pj " << p_w_j << " q_j " << q_w_j.vec().transpose() << std::endl;
 
         Eigen::Matrix<double,6,1> residual;
         residual.block<3,1>(0,0) = sqrt_info_p*(dpos - q_w_i.inverse()*(p_w_j - p_w_i));
         residual.block<3,1>(3,0) = 2.0*sqrt_info_q*(dq_l_inv*(q_w_i.inverse()*q_w_j)).vec();
 
-        puts("num");
-        std::cout << residual.transpose() << std::endl;
+        // puts("num");
+        // std::cout << residual.transpose() << std::endl;
         const double eps = 1e-6;
         Eigen::Matrix<double, 6, 12> num_jacobian;
         for (int k=0; k<12; k++){
@@ -133,7 +134,7 @@ public:
             tmp_residual.block<3,1>(3,0) = 2.0*sqrt_info_q*(dq_l_inv*(q_w_i.inverse()*q_w_j)).vec();
             num_jacobian.col(k) = (tmp_residual - residual) / eps;
         }
-        std::cout << num_jacobian << std::endl;
+        // std::cout << num_jacobian << std::endl;
     }
 
     Eigen::Vector3d dpos;

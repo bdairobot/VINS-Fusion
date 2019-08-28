@@ -31,10 +31,9 @@ public:
 	void inputGPS(double gps_t, vector<double> &GPS_pose);
 	void inputBaro(double baro_t, vector<double> &Baro);
 	void inputAtt(double att_t, vector<double> &Att);
-	void inputMag(double mag_t, vector<double> &Mag);
 	void getGlobalOdom(Eigen::Vector3d OdomP, Eigen::Quaterniond OdomQ, Eigen::Vector3d &global_odomP, Eigen::Quaterniond &global_odomQ);
 	nav_msgs::Path global_path;
-	bool mag_init;
+	bool att_init;
 	Eigen::Matrix4d WGPS_T_WVIO;
 
 private:
@@ -49,11 +48,9 @@ private:
 	map<double, vector<double>> GPSPositionMap;
 	map<double, vector<double>> baroMap;
 	map<double, vector<double>> attMap;
-	map<double, vector<double>> magMap;
 	
 	bool newGPS;
 	bool newBaro;
-	bool newMag;
 	bool newAtt;
 	double mag_decl[1][1];
 	GeographicLib::LocalCartesian geoConverter;

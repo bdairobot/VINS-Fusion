@@ -29,11 +29,13 @@ public:
 	~GlobalOptimization();
 	void inputKeyframe(double t, Eigen::Vector3d OdomP, Eigen::Quaterniond OdomQ, double t_dev, double q_dev);
 	void inputGPS(double gps_t, vector<double> &GPS_pose);
+	void restart();
 	void inputBaro(double baro_t, vector<double> &Baro);
 	void inputAtt(double att_t, vector<double> &Att);
 	void getGlobalOdom(Eigen::Vector3d OdomP, Eigen::Quaterniond OdomQ, Eigen::Vector3d &global_odomP, Eigen::Quaterniond &global_odomQ);
 	nav_msgs::Path global_path;
 	bool att_init;
+	bool pos_init;
 	Eigen::Matrix4d WGPS_T_WVIO;
 
 private:

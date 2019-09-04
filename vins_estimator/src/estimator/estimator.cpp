@@ -1138,7 +1138,7 @@ void Estimator::optimization()
         return;
 
     error_flag = 0;
-
+    if(false)
     { // perform imu check
         uint counter[5] = {0,0,0,0,0};
         while(!constrains_imu.empty()){
@@ -1162,14 +1162,18 @@ void Estimator::optimization()
         // ROS_WARN("Total number: %u. Threthhold number: %u, %u, %u, %u", counter[0],counter[1],counter[2],counter[3], counter[4]);
         static int warning_counter = 0;
         if (counter[2] >= 8 || counter[1] >= 5) {
-            ROS_WARN("VIO Warning!");
             warning_counter++;
         }  else warning_counter = 0;
-        if (warning_counter >= 5)
-            ROS_ERROR("VIO Error!");
+        if (warning_counter >= 15){
+            ROS_ERROR("VIO Error! IMU MISSMATCH");
+            error_flag |= 1<<1;
+        } else if (warning_counter >= 5){
+            ROS_WARN("VIO Warning! IMU MISSMATCH");
             error_flag |= 1<<0;
+        }
     }
 
+    if (false)
     {// perform vision check
         uint counter_min[3] = {0,0,0};
         uint counter_max[4] = {1,0,0,0};
@@ -1206,12 +1210,15 @@ void Estimator::optimization()
         {
             static int warning_counter = 0;
             if (counter_max[2]*100/counter_max[0] >= 75 || counter_min[1]*100/counter_max[0] >= 75) {
-                    ROS_WARN("VIO Warning!, VISION MATCH");
                     warning_counter++;
             }  else warning_counter = 0;
-            if (warning_counter >= 5)
-                ROS_ERROR("VIO Error! VISION MATCH");
-                error_flag |= 1<<1;
+            if (warning_counter >= 15){
+                ROS_ERROR("VIO Error! VISION MISMATCH");
+                error_flag |= 1<<3;
+            } else if(warning_counter >= 5){
+                ROS_WARN("VIO Warning! VISION MISMATCH");
+                error_flag |= 1<<2;
+            }
         }
     }
 

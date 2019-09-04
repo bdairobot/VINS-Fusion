@@ -20,6 +20,7 @@ GlobalOptimization::GlobalOptimization()
     newBaro = false;
     newAtt = false;
     att_init = false;
+    pos_init = false;
     mag_decl[0][0] = -0.0 / 180.0 * 3.14159;
 	WGPS_T_WVIO = Eigen::Matrix4d::Identity();
     threadOpt = std::thread(&GlobalOptimization::optimize, this);
@@ -28,6 +29,21 @@ GlobalOptimization::GlobalOptimization()
 GlobalOptimization::~GlobalOptimization()
 {
     threadOpt.detach();
+}
+
+void GlobalOptimization::restart()
+{
+    mPoseMap.lock();
+    newGPS = newBaro = newAtt =false;
+    att_init = pos_init = false;
+    WGPS_T_WVIO = Eigen::Matrix4d::Identity();
+    localPoseMap.clear();
+    globalPoseMap.clear();
+    GPSPositionMap.clear();
+    baroMap.clear();
+    attMap.clear();
+    mPoseMap.unlock();
+
 }
 
 void GlobalOptimization::inputKeyframe(double t, Eigen::Vector3d OdomP, Eigen::Quaterniond OdomQ, double p_var, double q_var)
@@ -87,7 +103,8 @@ void GlobalOptimization::optimize()
 {
     while(true){
         if(newGPS || newAtt || newBaro){
-            std::cout << "global optimization!" << std::endl;
+            // std::cout << "global optimization!" << std::endl;
+            TicToc globalOptimizationTime;
             newGPS = newBaro = newAtt = false;
             ceres::Problem problem;
             ceres::Solver::Options options;
@@ -123,8 +140,9 @@ void GlobalOptimization::optimize()
             }
             // add mag decline degree
             problem.AddParameterBlock(mag_decl[0], 1);
-            problem.SetParameterBlockConstant(mag_decl[0]);
-            std::cout << "mag_decl: " << mag_decl[0][0] * 180.0/3.14159 << " VIO size: " << localPoseMap.size() << " GPS size: " << GPSPositionMap.size() << " ATT size: " << attMap.size() << " Baro size: " << baroMap.size() << std::endl;
+            // if (!newGPS)
+                problem.SetParameterBlockConstant(mag_decl[0]);
+            // std::cout << "mag_decl: " << mag_decl[0][0] * 180.0/3.14159 << " VIO size: " << localPoseMap.size() << " GPS size: " << GPSPositionMap.size() << " ATT size: " << attMap.size() << " Baro size: " << baroMap.size() << std::endl;
 
             map<double, vector<double>>::iterator iterVIO, iterVIONext, iterGPS, iterBaro, iterAtt;
             int i = 0;
@@ -172,15 +190,15 @@ void GlobalOptimization::optimize()
                 double t = iterVIO->first;
 
                 /* gps factor */
-                // iterGPS = GPSPositionMap.find(t);
-                // if (iterGPS != GPSPositionMap.end()){
-                //     GPSFactor* gps_cost = new GPSFactor(iterGPS->second[0], iterGPS->second[1], iterGPS->second[2], sqrt(iterGPS->second[3]), sqrt(iterGPS->second[4]));
-                //     problem.AddResidualBlock(gps_cost, nullptr, t_array_xy[i], t_array_z[i]);
+                iterGPS = GPSPositionMap.find(t);
+                if (iterGPS != GPSPositionMap.end()){
+                    GPSFactor* gps_cost = new GPSFactor(iterGPS->second[0], iterGPS->second[1], iterGPS->second[2], sqrt(iterGPS->second[3]), 100);
+                    problem.AddResidualBlock(gps_cost, nullptr, t_array_xy[i], t_array_z[i]);
                     // double **param = new double* [2];
                     // param[0] = t_array_xy[i];
                     // param[1] = t_array_z[i];
                     // gps_cost->check(param);
-                // }
+                }
                 /* baro factor */
                 iterBaro = baroMap.find(t);
                 if (iterBaro != baroMap.end()){
@@ -197,7 +215,7 @@ void GlobalOptimization::optimize()
             }
             mPoseMap.unlock();
             ceres::Solve(options, &problem, &summary);
-            std::cout << summary.BriefReport() << "\n";
+            // std::cout << summary.BriefReport() << "\n";
 
             // update global pose
             mPoseMap.lock();
@@ -223,8 +241,9 @@ void GlobalOptimization::optimize()
             }
             updateGlobalPath();
             mPoseMap.unlock();
+            printf("global time %f \n", globalOptimizationTime.toc());
         }
-        std::chrono::milliseconds dura(1000);
+        std::chrono::milliseconds dura(50);
         std::this_thread::sleep_for(dura);
         // std::cout << "GPSPositionMap size: " << GPSPositionMap.size() << std::endl;
 

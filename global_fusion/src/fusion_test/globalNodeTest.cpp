@@ -60,7 +60,7 @@ static const float BETA_TABLE[5] = {0,
 static double NOISE_BARO = 1.2;
 static double NOISE_ATT = 0.05;
 
-static uint BUF_DURATION = 3;
+static uint BUF_DURATION = 5;
 
 // aligned GPS, Baro and Att data with VIO using time stamp
 static map<double, vector<double>> map_GPS; // x,y,z,xy_var,z_var. position
@@ -134,7 +134,7 @@ void GPS_callback(const sensor_msgs::NavSatFixConstPtr &GPS_msg)
         pose_gps.pose.position.y = xyz[1];
         pose_gps.pose.position.z = xyz[2];
         pose_gps.pose.orientation.w = 1.0;
-        pub_gps_pose.publish(pose_gps);
+        
         gps_path.header = pose_gps.header;
         gps_path.poses.push_back(pose_gps);
         pub_gps_path.publish(gps_path);
@@ -204,7 +204,11 @@ void keyframe_callback(const nav_msgs::OdometryConstPtr &pose_msg)
     if (gap_t < 0) return;
     // if (!(error_flag & 1<<3 && pose_msg->pose.covariance[0]>=0.0)){
     double cov = pose_msg->pose.covariance[0];
-    if (cov < 0.0) cov = 1.0;
+    double q_cov = pose_msg->pose.covariance[28];
+    if (cov < 0.0) {
+        cov = 1.0;
+        q_cov = 0.1;
+    }
     {
         double kf_t = pose_msg->header.stamp.toSec() + gap_t;
         Eigen::Vector3d vio_p(pose_msg->pose.pose.position.x, pose_msg->pose.pose.position.y, pose_msg->pose.pose.position.z);
@@ -215,22 +219,24 @@ void keyframe_callback(const nav_msgs::OdometryConstPtr &pose_msg)
         vio_q.z() = pose_msg->pose.pose.orientation.z;
 
         map_buf.lock();
-        if(map_GPS.find(kf_t) != map_GPS.end() && !(error_flag & 1<<0))
+        if(map_GPS.find(kf_t) != map_GPS.end() && !(error_flag & 1<<0)){
             globalEstimator.inputGPS(kf_t, map_GPS[kf_t]);
+            geometry_msgs::PoseStamped pose_gps;
+            pose_gps.header.stamp = ros::Time(kf_t);
+            pose_gps.header.frame_id = "world";
+            pose_gps.pose.position.x = map_GPS[kf_t][0];
+            pose_gps.pose.position.y = map_GPS[kf_t][1];
+            pose_gps.pose.position.z = map_GPS[kf_t][2];
+            pose_gps.pose.orientation.w = 1.0;
+            pub_gps_pose.publish(pose_gps);
+        }
         if(map_Baro.find(kf_t) != map_Baro.end())
             globalEstimator.inputBaro(kf_t, map_Baro[kf_t]);
         if(map_Att.find(kf_t) != map_Att.end()){
-            if (!globalEstimator.att_init){
-                Eigen::Quaterniond att(map_Att[kf_t][0],map_Att[kf_t][1], map_Att[kf_t][2], map_Att[kf_t][3]);
-                Eigen::Vector3d ypr = Utility::R2ypr(att.toRotationMatrix()) / 180.0*3.14159;
-                Eigen::Quaterniond att_yaw_correct = Eigen::Quaterniond(cos(ypr(0)/2.0), 0.0, 0.0, sin(ypr(0)/2.0))*vio_q.inverse();
-                std::cout<< "mag yaw: " << ypr(0) * 180.0 / 3.14159 << std::endl;
-                globalEstimator.WGPS_T_WVIO.block<3,3>(0,0) = att_yaw_correct.toRotationMatrix();
-                globalEstimator.att_init = true;
-            }
+            
             globalEstimator.inputAtt(kf_t, map_Att[kf_t]);
         }
-        globalEstimator.inputKeyframe(kf_t, vio_p, vio_q, cov, pose_msg->pose.covariance[28]);
+        globalEstimator.inputKeyframe(kf_t, vio_p, vio_q, cov, q_cov);
         map_buf.unlock();
         pub_global_kf_path.publish(*global_kf_path);
 
@@ -240,26 +246,59 @@ void keyframe_callback(const nav_msgs::OdometryConstPtr &pose_msg)
 void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
 {
     if (gap_t < 0) return;
-    //printf("vio_callback! ");
-    if(pose_msg->pose.covariance[0] < 0){
-        error_flag |= 1<<3;
-        init_flag &= 0<<3;
-        std_msgs::Bool restart_flag;
-        restart_flag.data = true;
-        pub_vins_restart.publish(restart_flag);
-        return;
-    }
-    if (!(init_flag & 1<<3)){
-        init_flag |= 1<<3;
-    }
-    error_flag &= 0<<3;
+    static double last_update_t = pose_msg->header.stamp.toSec() + gap_t;
     double t = pose_msg->header.stamp.toSec() + gap_t;
+    // ROS_INFO("delta time between vision and imu: %8.4f", tmpAttQueue.back().first - t); // about 100ms
+
     Eigen::Vector3d vio_p(pose_msg->pose.pose.position.x, pose_msg->pose.pose.position.y, pose_msg->pose.pose.position.z);
     Eigen::Quaterniond vio_q;
     vio_q.w() = pose_msg->pose.pose.orientation.w;
     vio_q.x() = pose_msg->pose.pose.orientation.x;
     vio_q.y() = pose_msg->pose.pose.orientation.y;
     vio_q.z() = pose_msg->pose.pose.orientation.z;
+
+    if (t - last_update_t > 0.25) {
+        globalEstimator.restart(); // vins restarted
+        ROS_INFO("restarting optimization! Here");
+    }
+
+    if (!globalEstimator.pos_init){
+        globalEstimator.pos_init = true;
+        Eigen::Vector3d init_pos(0.0,0.0,0.0);
+        if (tmpGPSQueue.size()>0){
+            init_pos(0) = tmpGPSQueue.back().second[0];
+            init_pos(1) = tmpGPSQueue.back().second[1];                
+        }
+        if (tmpBaroQueue.size()>0)
+            init_pos(2) = tmpBaroQueue.back().second[0];                
+        globalEstimator.WGPS_T_WVIO.block<3,1>(0,3) = init_pos;
+    }
+    if (!globalEstimator.att_init){
+        globalEstimator.att_init = true;
+        vector<double> att_info = tmpAttQueue.back().second;
+        Eigen::Quaterniond att(att_info[0], att_info[1], att_info[2], att_info[3]);
+        Eigen::Vector3d ypr = Utility::R2ypr(att.toRotationMatrix()) / 180.0*3.14159;
+        Eigen::Quaterniond att_yaw_correct = Eigen::Quaterniond(cos(ypr(0)/2.0), 0.0, 0.0, sin(ypr(0)/2.0))*vio_q.inverse();
+        std::cout<< "mag yaw: " << ypr(0) * 180.0 / 3.14159 << std::endl;
+        globalEstimator.WGPS_T_WVIO.block<3,3>(0,0) = att_yaw_correct.toRotationMatrix();
+    }
+    // ROS_INFO("t - last_update_t: %8.4f", t - last_update_t);
+    last_update_t = t;
+
+    //printf("vio_callback! ");
+    // int vio_error_flag = int(-pose_msg->pose.covariance[0]);
+    // if ((vio_error_flag & 1<<3) || (vio_error_flag & 1<<1)){
+    //     return;
+    //     std_msgs::Bool restart_flag;
+    //     restart_flag.data = true;
+        
+    //     pub_vins_restart.publish(restart_flag);
+    //     globalEstimator.restart();
+    //     ROS_INFO("restarting optimization! ");
+    //     return;
+    // }
+    // error_flag &= ~(1<<3);
+    
     Eigen::Vector3d global_t;
     Eigen::Quaterniond global_q;
     globalEstimator.getGlobalOdom(vio_p, vio_q, global_t, global_q);
@@ -284,8 +323,7 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
             while(!tmpBaroQueue.empty()){
                 double baro_t = tmpBaroQueue.front().first;
                 if (t < baro_t - 0.02 && (tmpBaroQueue.size() == 50*BUF_DURATION)){
-                    ROS_ERROR("VIO is away behind BARO information! ");
-                    ROS_INFO("t:%8.4f baro_t: %8.4f", t, baro_t);
+                    ROS_ERROR("VIO is away behind BARO information! ");                    
                     assert(0);
                 } else if (t <= baro_t + 0.02 && t >= baro_t - 0.02){
                     map_buf.lock();

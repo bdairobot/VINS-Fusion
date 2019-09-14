@@ -114,7 +114,7 @@ void GlobalOptimization::optimize()
             options.max_num_iterations = 5;
             ceres::Solver::Summary summary;
             ceres::LossFunction *loss_function;
-            loss_function = new ceres::HuberLoss(1.0);
+            loss_function = new ceres::HuberLoss(2.0);
             ceres::LocalParameterization* local_parameterization = new ceres::QuaternionParameterization();
 
             //add global parameters
@@ -140,7 +140,7 @@ void GlobalOptimization::optimize()
             }
             // add mag decline degree
             problem.AddParameterBlock(mag_decl[0], 1);
-            // if (!newGPS)
+            if (!newGPS)
                 problem.SetParameterBlockConstant(mag_decl[0]);
             // std::cout << "mag_decl: " << mag_decl[0][0] * 180.0/3.14159 << " VIO size: " << localPoseMap.size() << " GPS size: " << GPSPositionMap.size() << " ATT size: " << attMap.size() << " Baro size: " << baroMap.size() << std::endl;
 
@@ -185,21 +185,21 @@ void GlobalOptimization::optimize()
                     ceres::CostFunction* vio_function = VIOFactorAuto::Create(iPj.x(), iPj.y(), iPj.z(),
                                                                                 iQj.w(), iQj.x(), iQj.y(), iQj.z(),
                                                                                 0.1, 0.01);
-                    problem.AddResidualBlock(vio_function, loss_function, q_array[i], t_array_xy[i], t_array_z[i], q_array[i+1], t_array_xy[i+1],t_array_z[i+1]);
+                    problem.AddResidualBlock(vio_function, nullptr, q_array[i], t_array_xy[i], t_array_z[i], q_array[i+1], t_array_xy[i+1],t_array_z[i+1]);
                 }
                 double t = iterVIO->first;
 
                 /* gps factor */
                 iterGPS = GPSPositionMap.find(t);
                 if (iterGPS != GPSPositionMap.end()){
-                    GPSFactor* gps_cost = new GPSFactor(iterGPS->second[0], iterGPS->second[1], iterGPS->second[2], sqrt(iterGPS->second[3]), 100);
-                    problem.AddResidualBlock(gps_cost, nullptr, t_array_xy[i], t_array_z[i]);
+                    GPSFactor* gps_cost = new GPSFactor(iterGPS->second[0], iterGPS->second[1], iterGPS->second[2], sqrt(iterGPS->second[3]), sqrt(iterGPS->second[4]));
+                    problem.AddResidualBlock(gps_cost, loss_function, t_array_xy[i], t_array_z[i]);
                     // double **param = new double* [2];
                     // param[0] = t_array_xy[i];
                     // param[1] = t_array_z[i];
                     // gps_cost->check(param);
                 }
-                /* baro factor */
+                // /* baro factor */
                 iterBaro = baroMap.find(t);
                 if (iterBaro != baroMap.end()){
                     BaroFactor* baro_cost = new BaroFactor(iterBaro->second[0], sqrt(iterBaro->second[1]));
@@ -225,7 +225,7 @@ void GlobalOptimization::optimize()
             	vector<double> globalPose{t_array_xy[i][0], t_array_xy[i][1], t_array_z[i][0],
             							  q_array[i][0], q_array[i][1], q_array[i][2], q_array[i][3]};
             	iter->second = globalPose;
-            	if(i == length - 1)
+            	if((i == length - 4) && length > 3)
             	{
             	    Eigen::Matrix4d WVIO_T_body = Eigen::Matrix4d::Identity(); 
             	    Eigen::Matrix4d WGPS_T_body = Eigen::Matrix4d::Identity();
@@ -241,7 +241,7 @@ void GlobalOptimization::optimize()
             }
             updateGlobalPath();
             mPoseMap.unlock();
-            printf("global time %f \n", globalOptimizationTime.toc());
+            // printf("global time %f \n", globalOptimizationTime.toc());
         }
         std::chrono::milliseconds dura(50);
         std::this_thread::sleep_for(dura);

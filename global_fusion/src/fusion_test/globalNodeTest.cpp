@@ -14,6 +14,7 @@
 #include <sensor_msgs/Imu.h>
 #include <std_msgs/Header.h>
 #include <std_msgs/Bool.h>
+#include <std_msgs/Float64MultiArray.h>
 #include <nav_msgs/Odometry.h>
 #include <nav_msgs/Path.h>
 #include <geometry_msgs/PointStamped.h>
@@ -123,7 +124,18 @@ void GPS_callback(const sensor_msgs::NavSatFixConstPtr &GPS_msg)
         double xyz[3];
         geoConverter.Forward(GPS_msg->latitude, GPS_msg->longitude,GPS_msg->altitude, xyz[0],xyz[1],xyz[2]);
            //printf("gps_callback! ");
-        vector<double> gps_info = {xyz[0],xyz[1],xyz[2], GPS_msg->position_covariance[0], GPS_msg->position_covariance[8]};
+        
+        static vector<double> last_gps_dev; 
+        static double diff_gps_dev_xy = 0;
+        static double diff_gps_dev_z = 0;
+
+        if (last_gps_dev.size()>0){
+            diff_gps_dev_xy = 0.3*diff_gps_dev_xy + 0.7 *(sqrt(GPS_msg->position_covariance[0]) - last_gps_dev[1])/(gps_t -  last_gps_dev[0]);
+
+            diff_gps_dev_z = 0.3*diff_gps_dev_z + 0.7 *(sqrt(GPS_msg->position_covariance[8]) - last_gps_dev[2])/(gps_t -  last_gps_dev[0]);
+        }
+       
+        vector<double> gps_info = {xyz[0],xyz[1],xyz[2], GPS_msg->position_covariance[0],GPS_msg->position_covariance[8], diff_gps_dev_xy, diff_gps_dev_z};
         m_buf.lock();
         tmpGPSQueue.push(make_pair(gps_t, gps_info));
         // store 3s data
@@ -370,16 +382,21 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
         if (init_flag & 1<<0){
             while(!tmpGPSQueue.empty()){
                 pair<double, vector<double>> GPS_info = tmpGPSQueue.front();
-                if (GPS_info.second[3] > 9.0){tmpGPSQueue.pop(); continue;}
+                static bool gps_noisy = false;
+                if((GPS_info.second[3] > 16.0 && GPS_info.second[5] > 0.2) || GPS_info.second[3] > 25.0 || (GPS_info.second[3] > 16 && gps_noisy)){
+                    gps_noisy = true;
+                    tmpGPSQueue.pop(); continue;
+                }
+                gps_noisy = false;
                 double gps_t = GPS_info.first;
                 Eigen::Vector3d gps_pose(GPS_info.second[0],GPS_info.second[1],GPS_info.second[2]);
                 static pair<double, vector<double>> last_pop;
                 static bool pop_flag = false;
                 static bool shown_once = false;
-                if (t < gps_t - 0.02 && (tmpGPSQueue.size()==15)){
+                if (t < gps_t - 0.02 && (tmpGPSQueue.size()==5*BUF_DURATION)){
                     ROS_ERROR("VIO is away behind GPS information! ");
                     assert(0);
-                } else if (t <= gps_t + 0.02 && t >= gps_t - 0.02){
+                } else if (t <= gps_t + 0.2 && t >= gps_t - 0.2){
                     map_buf.lock();
                     if (map_GPS.size() == duration*step){
                         if(!shown_once) {ROS_INFO("map_GPS.size(): %lu ", map_GPS.size()); shown_once = true;}
@@ -392,26 +409,29 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
                     map_buf.unlock();
                     break;
                 // } else tmpGPSQueue.pop();
-                }else { // insert
-                    if(!pop_flag || t > gps_t + 0.02){
-                        last_pop = GPS_info;
-                        tmpGPSQueue.pop();
-                        pop_flag = true;
-                    } else {
-                        Eigen::Vector3d insert_gps_pose = gps_pose - (gps_t - t)/(gps_t - last_pop.first)*(gps_pose - Eigen::Vector3d{last_pop.second[0],last_pop.second[1],last_pop.second[2]});
-                        map_buf.lock();
-                        if (map_GPS.size() == duration*step){
-                            map_GPS.erase(map_GPS.begin());
-                            if(!shown_once) {ROS_INFO("map_GPS.size(): %lu ", map_GPS.size()); shown_once = true;}
-                        }
-                        map_GPS[t] = vector<double> {insert_gps_pose(0), insert_gps_pose(1), insert_gps_pose(2), GPS_info.second[3], GPS_info.second[4]};
-                        last_pop = GPS_info;
-                        tmpGPSQueue.pop();
-                        pop_flag = true;
-                        map_buf.unlock();
-                        break;
-                    }
+                }else if(!pop_flag || t > gps_t + 0.02){
+                    last_pop = GPS_info;
+                    tmpGPSQueue.pop();
+                    pop_flag = true;
+                    continue;
                 }
+                if(pop_flag && t < gps_t && t > last_pop.first){
+                    Eigen::Vector3d insert_gps_pose = gps_pose - (gps_t - t)/(gps_t - last_pop.first)*(gps_pose - Eigen::Vector3d{last_pop.second[0],last_pop.second[1],last_pop.second[2]});
+                    map_buf.lock();
+                    if (map_GPS.size() == duration*step){
+                        map_GPS.erase(map_GPS.begin());
+                        if(!shown_once) {ROS_INFO("map_GPS.size(): %lu ", map_GPS.size()); shown_once = true;}
+                    }
+                    map_GPS[t] = vector<double> {insert_gps_pose(0), insert_gps_pose(1), insert_gps_pose(2), GPS_info.second[3], GPS_info.second[4]};
+                    last_pop = GPS_info;
+                    tmpGPSQueue.pop();
+                    pop_flag = true;
+                    map_buf.unlock();
+                    break;
+                } else {
+                    // ROS_INFO("t-gps_t: %8.4f, t - last_pop.first: %8.4f", t-gps_t, t - last_pop.first);
+                    break;
+                };
             }
         }
     }

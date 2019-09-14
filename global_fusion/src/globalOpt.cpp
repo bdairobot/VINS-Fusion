@@ -241,7 +241,7 @@ void GlobalOptimization::optimize()
             //printf("global time %f \n", globalOptimizationTime.toc());
             mPoseMap.unlock();
         }
-        std::chrono::milliseconds dura(1000);
+        std::chrono::milliseconds dura(100);
         std::this_thread::sleep_for(dura);
     }
 	return;

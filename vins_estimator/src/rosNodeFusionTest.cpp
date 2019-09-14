@@ -74,7 +74,7 @@ void sync_process()
 {
     while(1)
     {
-        if(STEREO)
+        if(false)
         {
             cv::Mat image0, image1;
             std_msgs::Header header;
@@ -124,8 +124,12 @@ void sync_process()
                 img0_buf.pop();
             }
             m_buf.unlock();
-            if(!image.empty())
-                estimator.inputImage(time, image);
+	        static int k = 0;
+            if(!image.empty()){
+		        k=(k+1) % 3;
+		        if (k==0)
+                	estimator.inputImage(time, image);
+	        }
         }
 
         std::chrono::milliseconds dura(2);

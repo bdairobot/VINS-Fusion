@@ -9,9 +9,9 @@ imu_topic: "/mynteye/imu/data_raw"
 image0_topic: "/mynteye/left/image_color"
 output_path: "/home/bdai/output/"
 
-cam0_calib: "left_pinhole.yaml"
-image_width: 1280
-image_height: 720
+cam0_calib: "left_pinhole_640.yaml"
+image_width: 640
+image_height: 480
    
 
 # Extrinsic parameter between IMU and Camera.

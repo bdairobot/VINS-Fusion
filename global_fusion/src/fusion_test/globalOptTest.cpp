@@ -84,7 +84,7 @@ void GlobalOptimization::inputGPS(double gps_t, vector<double> &GPS_pose)
 {
     //printf("new gps: t: %f x: %f y: %f z:%f \n", t, tmp[0], tmp[1], tmp[2]);
 
-	GPSPositionMap.insert(make_pair(gps_t, GPS_pose));
+    GPSPositionMap.insert(make_pair(gps_t, GPS_pose));
     newGPS = true;
 }
 
@@ -140,9 +140,17 @@ void GlobalOptimization::optimize()
             }
             // add mag decline degree
             problem.AddParameterBlock(mag_decl[0], 1);
-            if (!newGPS)
-                problem.SetParameterBlockConstant(mag_decl[0]);
-            // std::cout << "mag_decl: " << mag_decl[0][0] * 180.0/3.14159 << " VIO size: " << localPoseMap.size() << " GPS size: " << GPSPositionMap.size() << " ATT size: " << attMap.size() << " Baro size: " << baroMap.size() << std::endl;
+            //if (!newGPS)
+            //    problem.SetParameterBlockConstant(mag_decl[0]);
+            int opt_length = 2500;
+            if (length > opt_length){
+                for (int i = 0; i < length - opt_length; i++) {
+                    problem.SetParameterBlockConstant(q_array[i]);
+                    problem.SetParameterBlockConstant(t_array_xy[i]);
+                    problem.SetParameterBlockConstant(t_array_z[i]);
+                }
+            }
+            std::cout << "mag_decl: " << mag_decl[0][0] * 180.0/3.14159 << " VIO size: " << localPoseMap.size() << " GPS size: " << GPSPositionMap.size() << " ATT size: " << attMap.size() << " Baro size: " << baroMap.size() << std::endl;
 
             map<double, vector<double>>::iterator iterVIO, iterVIONext, iterGPS, iterBaro, iterAtt;
             int i = 0;
@@ -192,7 +200,7 @@ void GlobalOptimization::optimize()
                 /* gps factor */
                 iterGPS = GPSPositionMap.find(t);
                 if (iterGPS != GPSPositionMap.end()){
-                    GPSFactor* gps_cost = new GPSFactor(iterGPS->second[0], iterGPS->second[1], iterGPS->second[2], sqrt(iterGPS->second[3]), sqrt(iterGPS->second[4]));
+                    GPSFactor* gps_cost = new GPSFactor(iterGPS->second[0], iterGPS->second[1], iterGPS->second[2], sqrt(iterGPS->second[3]), 100);
                     problem.AddResidualBlock(gps_cost, loss_function, t_array_xy[i], t_array_z[i]);
                     // double **param = new double* [2];
                     // param[0] = t_array_xy[i];
@@ -208,6 +216,7 @@ void GlobalOptimization::optimize()
 
                 /* att factor */
                 iterAtt = attMap.find(t);
+//		if (false) {
                 if (iterAtt != attMap.end()){
                     ceres::CostFunction* att_cost = attFactorAuto::Create(iterAtt->second[0], iterAtt->second[1], iterAtt->second[2],iterAtt->second[3], sqrt(iterAtt->second[4]));
                     problem.AddResidualBlock(att_cost, nullptr, q_array[i], mag_decl[0]);
@@ -241,7 +250,7 @@ void GlobalOptimization::optimize()
             }
             updateGlobalPath();
             mPoseMap.unlock();
-            // printf("global time %f \n", globalOptimizationTime.toc());
+            printf("global time %f \n", globalOptimizationTime.toc());
         }
         std::chrono::milliseconds dura(50);
         std::this_thread::sleep_for(dura);

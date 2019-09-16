@@ -58,7 +58,7 @@ static const float BETA_TABLE[5] = {0,
 				    6.25,
                     7.78
 				   };
-static double NOISE_BARO = 1.2;
+static double NOISE_BARO = 1.5;
 static double NOISE_ATT = 0.05;
 
 static uint BUF_DURATION = 5;
@@ -465,20 +465,20 @@ int main(int argc, char **argv)
     ros::NodeHandle n("~");
     global_kf_path = &globalEstimator.global_path;
 
-    ros::Subscriber sub_GPS = n.subscribe("/mavros/global_position/raw/fix", 100, GPS_callback);
-    ros::Subscriber sub_baro = n.subscribe("/mavros/imu/static_pressure",100, baro_callback);
-    ros::Subscriber sub_kf = n.subscribe("/vins_estimator/keyframe_pose", 100, keyframe_callback);
-    ros::Subscriber sub_vio = n.subscribe("/vins_estimator/odometry", 100, vio_callback);
-    sub_myeye_imu = n.subscribe("/mynteye/imu/data_raw", 100, myeye_imu_callback);
-    ros::Subscriber sub_imu = n.subscribe("/mavros/imu/data", 100, imu_callback);
+    ros::Subscriber sub_GPS = n.subscribe("/mavros/global_position/raw/fix", 200, GPS_callback);
+    ros::Subscriber sub_baro = n.subscribe("/mavros/imu/static_pressure",200, baro_callback);
+    ros::Subscriber sub_kf = n.subscribe("/vins_estimator/keyframe_pose", 200, keyframe_callback);
+    ros::Subscriber sub_vio = n.subscribe("/vins_estimator/odometry", 200, vio_callback);
+    sub_myeye_imu = n.subscribe("/mynteye/imu/data_raw", 1000, myeye_imu_callback);
+    ros::Subscriber sub_imu = n.subscribe("/mavros/imu/data", 1000, imu_callback);
 
-    pub_global_path = n.advertise<nav_msgs::Path>("global_path", 100);
-    pub_global_kf_path = n.advertise<nav_msgs::Path>("global_kf_path", 100);
-    pub_gps_path = n.advertise<nav_msgs::Path>("gps_path", 100);
+    pub_global_path = n.advertise<nav_msgs::Path>("global_path", 1000);
+    pub_global_kf_path = n.advertise<nav_msgs::Path>("global_kf_path", 1000);
+    pub_gps_path = n.advertise<nav_msgs::Path>("gps_path", 1000);
     pub_global_pose = n.advertise<geometry_msgs::PoseStamped>("global_pose", 100);
     pub_gps_pose = n.advertise<geometry_msgs::PoseStamped>("gps_pose", 100);
     pub_baro_height = n.advertise<geometry_msgs::PointStamped>("baro_height", 100);
-    pub_vins_restart = n.advertise<std_msgs::Bool>("/vins_restart", 5);
+    pub_vins_restart = n.advertise<std_msgs::Bool>("/vins_restart", 100);
 
     ros::spin();
     return 0;

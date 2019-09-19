@@ -10,6 +10,7 @@
  *******************************************************/
 
 #include "pose_graph.h"
+#include <fstream>
 
 PoseGraph::PoseGraph()
 {
@@ -183,17 +184,16 @@ void PoseGraph::addKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
     {
         ofstream loop_path_file(VINS_RESULT_PATH, ios::app);
         loop_path_file.setf(ios::fixed, ios::floatfield);
+        loop_path_file.precision(6);
         loop_path_file.precision(0);
-        loop_path_file << cur_kf->time_stamp * 1e9 << ",";
-        loop_path_file.precision(5);
-        loop_path_file  << P.x() << ","
-              << P.y() << ","
-              << P.z() << ","
-              << Q.w() << ","
-              << Q.x() << ","
-              << Q.y() << ","
-              << Q.z() << ","
-              << endl;
+        loop_path_file << cur_kf->time_stamp<< " ";
+        loop_path_file  << P.x() << " "
+              << P.y() << " "
+              << P.z() << " "
+              << Q.x() << " "
+              << Q.y() << " "
+              << Q.z() << " "
+              << Q.w() << endl;
         loop_path_file.close();
     }
     //draw local connection
@@ -433,6 +433,8 @@ void PoseGraph::addKeyFrameIntoVoc(KeyFrame* keyframe)
 
 void PoseGraph::optimize4DoF()
 {
+    std::ofstream fout_time("/home/bdai/output/loop_opt_time.txt", std::ios::out);
+    fout_time.close();
     while(true)
     {
         int cur_index = -1;
@@ -553,7 +555,14 @@ void PoseGraph::optimize4DoF()
             ceres::Solve(options, &problem, &summary);
             //std::cout << summary.BriefReport() << "\n";
             
-            //printf("pose optimization time: %f \n", tmp_t.toc());
+            printf("pose optimization time: %f \n", tmp_t.toc());
+
+            std::ofstream fout_time("/home/bdai/output/loop_opt_time.txt", std::ios::app);
+            fout_time.setf(ios::fixed, ios::floatfield);
+            fout_time.precision(6);
+            fout_time << (*(keyframelist.rbegin()))->time_stamp << " " << tmp_t.toc() << endl;
+            fout_time.close();
+            
             /*
             for (int j = 0 ; j < i; j++)
             {
@@ -830,17 +839,15 @@ void PoseGraph::updatePath()
         {
             ofstream loop_path_file(VINS_RESULT_PATH, ios::app);
             loop_path_file.setf(ios::fixed, ios::floatfield);
-            loop_path_file.precision(0);
-            loop_path_file << (*it)->time_stamp * 1e9 << ",";
-            loop_path_file.precision(5);
-            loop_path_file  << P.x() << ","
-                  << P.y() << ","
-                  << P.z() << ","
-                  << Q.w() << ","
-                  << Q.x() << ","
-                  << Q.y() << ","
-                  << Q.z() << ","
-                  << endl;
+            loop_path_file.precision(6);
+            loop_path_file << (*it)->time_stamp << " ";
+            loop_path_file  << P.x() << " "
+                  << P.y() << " "
+                  << P.z() << " "
+                  << Q.x() << " "
+                  << Q.y() << " "
+                  << Q.z() << " "
+                  << Q.w() << endl;
             loop_path_file.close();
         }
         //draw local connection

@@ -13,6 +13,7 @@
 #include "factors/attFactor.h"
 #include "factors/attFactorAuto.h"
 #include "factors/VIOFactorAuto.h"
+#include <fstream>
 
 GlobalOptimization::GlobalOptimization()
 {
@@ -101,6 +102,8 @@ void GlobalOptimization::inputAtt(double att_t, vector<double> &Att)
 
 void GlobalOptimization::optimize()
 {
+    std::ofstream fout_time("/home/bdai/output/global_opt_time.txt", std::ios::out);
+    fout_time.close();
     while(true){
         if(newGPS || newAtt || newBaro){
             // std::cout << "global optimization!" << std::endl;
@@ -216,7 +219,7 @@ void GlobalOptimization::optimize()
 
                 /* att factor */
                 iterAtt = attMap.find(t);
-//		if (false) {
+		        // if (false) {
                 if (iterAtt != attMap.end()){
                     ceres::CostFunction* att_cost = attFactorAuto::Create(iterAtt->second[0], iterAtt->second[1], iterAtt->second[2],iterAtt->second[3], sqrt(iterAtt->second[4]));
                     problem.AddResidualBlock(att_cost, nullptr, q_array[i], mag_decl[0]);
@@ -251,6 +254,11 @@ void GlobalOptimization::optimize()
             updateGlobalPath();
             mPoseMap.unlock();
             printf("global time %f \n", globalOptimizationTime.toc());
+            ofstream fout_time("/home/bdai/output/global_opt_time.txt", std::ios::app);
+            fout_time.setf(ios::fixed, ios::floatfield);
+            fout_time.precision(6);
+            fout_time << localPoseMap.rbegin()->first << " " << globalOptimizationTime.toc() << endl;
+            fout_time.close();
         }
         std::chrono::milliseconds dura(50);
         std::this_thread::sleep_for(dura);

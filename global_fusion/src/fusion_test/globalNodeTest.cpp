@@ -33,11 +33,11 @@ using namespace std;
 
 GlobalOptimization globalEstimator;
 ros::Publisher pub_global_pose, pub_gps_pose;
-ros::Publisher pub_global_kf_path, pub_global_path, pub_gps_path;
+ros::Publisher pub_global_kf_path, pub_global_path, pub_gps_path, pub_gp_odom_path;
 ros::Publisher pub_baro_height;
 ros::Publisher pub_vins_restart;
 ros::Subscriber sub_myeye_imu;
-nav_msgs::Path *global_kf_path, global_path, gps_path;
+nav_msgs::Path *global_kf_path, global_path, gps_path, gp_odom_path;
 mutex m_buf, map_buf;
 
 // gps information: time, x, y, z, xy_var, z_var
@@ -270,10 +270,10 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
     vio_q.y() = pose_msg->pose.pose.orientation.y;
     vio_q.z() = pose_msg->pose.pose.orientation.z;
 
-    if (t - last_update_t > 0.25) {
-        globalEstimator.restart(); // vins restarted
-        ROS_INFO("restarting optimization! Here");
-    }
+    //if (t - last_update_t > 0.25) {
+    //    globalEstimator.restart(); // vins restarted
+    //    ROS_INFO("restarting optimization! Here");
+    //}
 
     if (!globalEstimator.pos_init){
         globalEstimator.pos_init = true;
@@ -326,6 +326,7 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
     vio_pose.pose.orientation.z = global_q.z();
     vio_pose.pose.orientation.w = global_q.w();
     pub_global_pose.publish(vio_pose);
+    global_path.header = vio_pose.header;
     global_path.poses.push_back(vio_pose);
     pub_global_path.publish(global_path);
 
@@ -455,6 +456,18 @@ void imu_callback(const sensor_msgs::ImuConstPtr &imu_msg){
         tmpAttQueue.pop();
 }
 
+void gp_odom_callback(nav_msgs::Odometry::ConstPtr gp_odom)
+{
+        gp_odom_path.header = gp_odom->header;
+	gp_odom_path.header.frame_id = "world";
+	geometry_msgs::PoseStamped pose;
+	pose.header = gp_odom->header;
+	pose.header.frame_id = "world";
+	pose.pose = gp_odom->pose.pose;
+        gp_odom_path.poses.push_back(pose)	;
+        pub_gp_odom_path.publish(gp_odom_path);
+}
+
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "globalEstimator");
@@ -467,10 +480,12 @@ int main(int argc, char **argv)
     ros::Subscriber sub_vio = n.subscribe("/vins_estimator/odometry", 200, vio_callback);
     sub_myeye_imu = n.subscribe("/mynteye/imu/data_raw", 1000, myeye_imu_callback);
     ros::Subscriber sub_imu = n.subscribe("/mavros/imu/data", 1000, imu_callback);
+    ros::Subscriber sub_gp_odom = n.subscribe("/mavros/global_position/local", 100, gp_odom_callback);
 
     pub_global_path = n.advertise<nav_msgs::Path>("global_path", 1000);
     pub_global_kf_path = n.advertise<nav_msgs::Path>("global_kf_path", 1000);
     pub_gps_path = n.advertise<nav_msgs::Path>("gps_path", 1000);
+    pub_gp_odom_path = n.advertise<nav_msgs::Path>("gp_odom_path", 1000);
     pub_global_pose = n.advertise<geometry_msgs::PoseStamped>("global_pose", 100);
     pub_gps_pose = n.advertise<geometry_msgs::PoseStamped>("gps_pose", 100);
     pub_baro_height = n.advertise<geometry_msgs::PointStamped>("baro_height", 100);
@@ -480,6 +495,7 @@ int main(int argc, char **argv)
     std::ofstream foutKF("/home/bdai/output/global_kf_path.txt", std::ios::out);
     std::ofstream fout("/home/bdai/output/global_path.txt", std::ios::out);
     std::ofstream foutGPS("/home/bdai/output/gps_path.txt", std::ios::out);
+    std::ofstream foutGP("/home/bdai/output/gp_odom_path.txt", std::ios::out);
     if (global_kf_path->poses.size()){
         for (uint i = 0; i < global_kf_path->poses.size(); i ++){
             foutKF.setf(ios::fixed, ios::floatfield);
@@ -514,14 +530,29 @@ int main(int argc, char **argv)
             foutGPS.precision(6);
             foutGPS << gps_path.poses[i].header.stamp.toSec()<< " ";
             foutGPS << gps_path.poses[i].pose.position.x << " "
-                   << gps_path.poses[i].pose.position.y << " "
-                   << gps_path.poses[i].pose.position.z << " "
-                   << gps_path.poses[i].pose.orientation.x << " "
-                   << gps_path.poses[i].pose.orientation.y << " "
-                   << gps_path.poses[i].pose.orientation.z << " "
-                   << gps_path.poses[i].pose.orientation.w << endl;
+                    << gps_path.poses[i].pose.position.y << " "
+                    << gps_path.poses[i].pose.position.z << " "
+                    << gps_path.poses[i].pose.orientation.x << " "
+                    << gps_path.poses[i].pose.orientation.y << " "
+                    << gps_path.poses[i].pose.orientation.z << " "
+                    << gps_path.poses[i].pose.orientation.w << endl;
         }
     }
+    if (gp_odom_path.poses.size()){
+        for (uint i = 0; i < gp_odom_path.poses.size(); i ++){
+            foutGPS.setf(ios::fixed, ios::floatfield);
+            foutGPS.precision(6);
+            foutGPS << gp_odom_path.poses[i].header.stamp.toSec()<< " ";
+            foutGPS << gp_odom_path.poses[i].pose.position.x << " "
+                    << gp_odom_path.poses[i].pose.position.y << " "
+                    << gp_odom_path.poses[i].pose.position.z << " "
+                    << gp_odom_path.poses[i].pose.orientation.x << " "
+                    << gp_odom_path.poses[i].pose.orientation.y << " "
+                    << gp_odom_path.poses[i].pose.orientation.z << " "
+                    << gp_odom_path.poses[i].pose.orientation.w << endl;
+        }
+    }
+
     foutKF.close();
     fout.close();
     foutGPS.close();

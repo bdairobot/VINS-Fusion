@@ -117,7 +117,7 @@ void GlobalOptimization::optimize()
             options.max_num_iterations = 5;
             ceres::Solver::Summary summary;
             ceres::LossFunction *loss_function;
-            loss_function = new ceres::HuberLoss(2.0);
+            loss_function = new ceres::HuberLoss(1.0);
             ceres::LocalParameterization* local_parameterization = new ceres::QuaternionParameterization();
 
             //add global parameters
@@ -145,7 +145,7 @@ void GlobalOptimization::optimize()
             problem.AddParameterBlock(mag_decl[0], 1);
             //if (!newGPS)
             //    problem.SetParameterBlockConstant(mag_decl[0]);
-            int opt_length = 2500;
+            int opt_length = 2000;
             if (length > opt_length){
                 for (int i = 0; i < length - opt_length; i++) {
                     problem.SetParameterBlockConstant(q_array[i]);
@@ -219,10 +219,10 @@ void GlobalOptimization::optimize()
 
                 /* att factor */
                 iterAtt = attMap.find(t);
-		        // if (false) {
-                if (iterAtt != attMap.end()){
+		if (false) {
+                //if (iterAtt != attMap.end()){
                     ceres::CostFunction* att_cost = attFactorAuto::Create(iterAtt->second[0], iterAtt->second[1], iterAtt->second[2],iterAtt->second[3], sqrt(iterAtt->second[4]));
-                    problem.AddResidualBlock(att_cost, nullptr, q_array[i], mag_decl[0]);
+                    problem.AddResidualBlock(att_cost, loss_function, q_array[i], mag_decl[0]);
                 }
             }
             mPoseMap.unlock();
@@ -237,7 +237,7 @@ void GlobalOptimization::optimize()
             	vector<double> globalPose{t_array_xy[i][0], t_array_xy[i][1], t_array_z[i][0],
             							  q_array[i][0], q_array[i][1], q_array[i][2], q_array[i][3]};
             	iter->second = globalPose;
-            	if((i == length - 4) && length > 3)
+            	if(i == length - 1)
             	{
             	    Eigen::Matrix4d WVIO_T_body = Eigen::Matrix4d::Identity(); 
             	    Eigen::Matrix4d WGPS_T_body = Eigen::Matrix4d::Identity();

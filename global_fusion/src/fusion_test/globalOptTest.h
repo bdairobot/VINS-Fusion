@@ -37,6 +37,7 @@ public:
 	bool att_init;
 	bool pos_init;
 	Eigen::Matrix4d WGPS_T_WVIO;
+	double sim_scale[1];
 
 private:
 	void GPS2XYZ(double latitude, double longitude, double altitude, double* xyz);

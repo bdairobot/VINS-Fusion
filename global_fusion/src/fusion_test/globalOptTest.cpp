@@ -260,9 +260,10 @@ void GlobalOptimization::optimize()
                 ceres::Solver::Options options_l;
                 options_l.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
                 options_l.max_num_iterations = 5;
-                ceres::Solver::Summary summary;
+                ceres::Solver::Summary summary_l;
+                ceres::LocalParameterization* local_parameterization = new ceres::QuaternionParameterization();
                 double q_relate[4];
-                double p_relate[3];
+                double t_relate[3];
             	if(i >= length - 1 - relate_size)
             	{   
                     double t = iter->first;
@@ -272,27 +273,25 @@ void GlobalOptimization::optimize()
                     Eigen::Vector3d p_w(globalPose[t][0], globalPose[t][1], globalPose[t][2]);
                     if (i == length - 1 - relate_size){
                         Eigen::Quaterniond q_w_v = q_w*q_v.inverse();
-                        Eigen::Vector3d p_w_v = -q_w_v*p_v + p_w;
+                        Eigen::Vector3d t_w_v = -sim_scale*q_w_v*p_v + p_w;
                         q_relate[0] = q_w_v.w();
                         q_relate[1] = q_w_v.x();
                         q_relate[2] = q_w_v.y();
                         q_relate[3] = q_w_v.z();
-                        p_relate[0] = p_w_v.x();
-                        p_relate[1] = p_w_v.y();
-                        p_relate[2] = p_w_v.z();
+                        t_relate[0] = t_w_v.x();
+                        t_relate[1] = t_w_v.y();
+                        t_relate[2] = t_w_v.z();
+                        problem_l.AddParameterBlock(q_relate, 4, local_parameterization);
+                        problem_l.AddParameterBlock(t_relate, 3);
                     }
-
-            	    Eigen::Matrix4d WVIO_T_body = Eigen::Matrix4d::Identity(); 
-            	    Eigen::Matrix4d WGPS_T_body = Eigen::Matrix4d::Identity();
-            	    
-            	    WVIO_T_body.block<3, 3>(0, 0) = Eigen::Quaterniond(localPoseMap[t][3], localPoseMap[t][4], 
-            	                                                       localPoseMap[t][5], localPoseMap[t][6]).toRotationMatrix();
-            	    WVIO_T_body.block<3, 1>(0, 3) = Eigen::Vector3d(localPoseMap[t][0], localPoseMap[t][1], localPoseMap[t][2]);
-            	    WGPS_T_body.block<3, 3>(0, 0) = Eigen::Quaterniond(globalPose[3], globalPose[4], 
-            	                                                        globalPose[5], globalPose[6]).toRotationMatrix();
-            	    WGPS_T_body.block<3, 1>(0, 3) = Eigen::Vector3d(globalPose[0], globalPose[1], globalPose[2]);
-            	    WGPS_T_WVIO = WGPS_T_body * WVIO_T_body.inverse();
+                    ceres::CostFunction* cost_fun = new simFactorAuto::Create(q_w, p_w, q_v, p_v, sim_scale[0]);
+                    problem_l.AddResidualBlock(cost_fun, nullptr, q_relate, t_relate);
             	}
+                ceres::Solve(options_l, &problem_l, &summary_l);
+                Eigen::Quaterniond q_w_v(q_relate[0], q_relate[1], q_relate[2], q_relate[3]);
+                Eigen::Vector3d t_w_v(t_relate[0], t_relate[1], t_relate[2]);
+                WGPS_T_WVIO.block<3,3>(0,0) = q_w_v.toRotationMatrix();
+                WGPS_T_WVIO.block<3,1>(0,3) = t_w_v;
             }
             newGPS = newBaro = newAtt = false;
             updateGlobalPath();

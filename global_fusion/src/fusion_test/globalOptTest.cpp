@@ -9,11 +9,11 @@
 #include "globalOptTest.h"
 #include "factors/baroFactor.h"
 #include "factors/GPSFactor.h"
-#include "factors/VIOFactor.h"
-#include "factors/attFactor.h"
+// #include "factors/VIOFactor.h"
+// #include "factors/attFactor.h"
 #include "factors/attFactorAuto.h"
 #include "factors/VIOFactorAuto.h"
-#include "factors/simFactorAuto.h"
+#include "factors/localAlignAuto.h"
 #include <fstream>
 
 GlobalOptimization::GlobalOptimization()
@@ -57,7 +57,7 @@ void GlobalOptimization::inputKeyframe(double t, Eigen::Vector3d OdomP, Eigen::Q
     localPoseMap[t] = localPose;
     Eigen::Quaterniond globalQ;
     globalQ = WGPS_T_WVIO.block<3, 3>(0, 0) * OdomQ;
-    Eigen::Vector3d globalP = WGPS_T_WVIO.block<3, 3>(0, 0) * OdomP + WGPS_T_WVIO.block<3, 1>(0, 3);
+    Eigen::Vector3d globalP = sim_scale[0]*WGPS_T_WVIO.block<3, 3>(0, 0) * OdomP + WGPS_T_WVIO.block<3, 1>(0, 3);
     vector<double> globalPose{globalP.x(), globalP.y(), globalP.z(),
                               globalQ.w(), globalQ.x(), globalQ.y(), globalQ.z()};
     globalPoseMap[t] = globalPose;
@@ -80,7 +80,7 @@ void GlobalOptimization::inputKeyframe(double t, Eigen::Vector3d OdomP, Eigen::Q
 void GlobalOptimization::getGlobalOdom(Eigen::Vector3d OdomP, Eigen::Quaterniond OdomQ, Eigen::Vector3d &global_odomP, Eigen::Quaterniond &global_odomQ)
 {
     global_odomQ = WGPS_T_WVIO.block<3, 3>(0, 0) * OdomQ;
-    global_odomP = WGPS_T_WVIO.block<3, 3>(0, 0) * OdomP + WGPS_T_WVIO.block<3, 1>(0, 3);
+    global_odomP = sim_scale[0] * WGPS_T_WVIO.block<3, 3>(0, 0) * OdomP + WGPS_T_WVIO.block<3, 1>(0, 3);
 }
 
 void GlobalOptimization::inputGPS(double gps_t, vector<double> &GPS_pose)
@@ -106,15 +106,15 @@ void GlobalOptimization::optimize()
 {
     std::ofstream fout_time("/home/bdai/output/global_opt_time.txt", std::ios::out);
     fout_time.close();
-    static uint min_size = 20, max_local_size =60;
+    static int min_size = 10, max_local_size =80;
     while(true){
         if(newGPS || newAtt || newBaro){
             int length = localPoseMap.size();
-            if (length < min_local_size) {
+            if (length < min_size) {
                 std::chrono::milliseconds dura(500);
                 std::this_thread::sleep_for(dura);
-                std::cout << "No optimization, localPoseMap size is: " << length << ", it must > " << min_local_size << std::endl;
-                return;
+                std::cout << "No optimization, localPoseMap size is: " << length << ", it must > " << min_size << std::endl;
+                continue;
             }
             // std::cout << "global optimization!" << std::endl;
             TicToc globalOptimizationTime;
@@ -125,8 +125,7 @@ void GlobalOptimization::optimize()
             //options.max_solver_time_in_seconds = SOLVER_TIME * 3;
             options.max_num_iterations = 5;
             ceres::Solver::Summary summary;
-            ceres::LossFunction *loss_function;
-            loss_function = new ceres::HuberLoss(1.0);
+            ceres::LossFunction *loss_function = new ceres::HuberLoss(1.0);
             ceres::LocalParameterization* local_parameterization = new ceres::QuaternionParameterization();
 
             //add global parameters
@@ -149,6 +148,8 @@ void GlobalOptimization::optimize()
                 problem.AddParameterBlock(q_array[i], 4, local_parameterization);
                 problem.AddParameterBlock(t_array_xy[i], 2);
                 problem.AddParameterBlock(t_array_z[i], 1);
+                if (i >= length -2)
+                    std::cout << "Address: " << std::hex << q_array[i] << ", " << t_array_xy[i] << ", " << t_array_z[i] << std::dec << std::endl;
             }
             // add mag decline degree
             problem.AddParameterBlock(mag_decl[0], 1);
@@ -167,6 +168,7 @@ void GlobalOptimization::optimize()
 
             map<double, vector<double>>::iterator iterVIO, iterVIONext, iterGPS, iterBaro, iterAtt;
             int i = 0;
+            bool update_scale = true;
             for (iterVIO = localPoseMap.begin(); iterVIO != localPoseMap.end(); iterVIO++, i++){
                 // add vio factor
                 iterVIONext = iterVIO;
@@ -203,7 +205,7 @@ void GlobalOptimization::optimize()
                     iQj = iTj.block<3, 3>(0, 0);
                     Eigen::Vector3d iPj = iTj.block<3, 1>(0, 3);
 
-                    if (length - i <= max_local_size){ // factor for sim scale
+                    if (i >= length - max_local_size){ // factor for sim scale
                         ceres::CostFunction* vio_function = VIOSimFactorAuto::Create(iPj.x(), iPj.y(), iPj.z(),
                                                                                 iQj.w(), iQj.x(), iQj.y(), iQj.z(),
                                                                                 0.1, 0.01);
@@ -215,6 +217,7 @@ void GlobalOptimization::optimize()
                         problem.AddResidualBlock(vio_function, nullptr, q_array[i], t_array_xy[i], t_array_z[i], q_array[i+1], t_array_xy[i+1],t_array_z[i+1]);
                     }
                 }
+                
                 double t = iterVIO->first;
 
                 /* gps factor */
@@ -222,6 +225,12 @@ void GlobalOptimization::optimize()
                 if (iterGPS != GPSPositionMap.end()){
                     GPSFactor* gps_cost = new GPSFactor(iterGPS->second[0], iterGPS->second[1], iterGPS->second[2], sqrt(iterGPS->second[3]), 100);
                     problem.AddResidualBlock(gps_cost, loss_function, t_array_xy[i], t_array_z[i]);
+                    if (i >= length - max_local_size) {
+                       update_scale = (update_scale && (
+                            (iterGPS->second[3] < 16 && iterGPS->second[3] >= 9 && iterGPS->second[5]<0.15) || 
+                            (iterGPS->second[3] < 9 && iterGPS->second[3] >= 4 && iterGPS->second[5]<0.1) || 
+                            (iterGPS->second[3] < 4  && iterGPS->second[5]<0.05)));
+                    }
                     // double **param = new double* [2];
                     // param[0] = t_array_xy[i];
                     // param[1] = t_array_z[i];
@@ -236,44 +245,51 @@ void GlobalOptimization::optimize()
 
                 /* att factor */
                 iterAtt = attMap.find(t);
-		    // if (false) {
-            if (iterAtt != attMap.end()){
+		        // if (false) {
+                if (iterAtt != attMap.end()){
                     ceres::CostFunction* att_cost = attFactorAuto::Create(iterAtt->second[0], iterAtt->second[1], iterAtt->second[2],iterAtt->second[3], sqrt(iterAtt->second[4]));
                     problem.AddResidualBlock(att_cost, loss_function, q_array[i], mag_decl[0]);
                 }
             }
             mPoseMap.unlock();
+
+            if (!update_scale || !newGPS) 
+                problem.SetParameterBlockConstant(sim_scale);
             ceres::Solve(options, &problem, &summary);
             // std::cout << summary.BriefReport() << "\n";
 
             // update global pose
             mPoseMap.lock();
             iter = globalPoseMap.begin();
+            ceres::Problem problem_l;
+            ceres::Solver::Options options_l;
+            options_l.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
+            options_l.max_num_iterations = 5;
+            ceres::Solver::Summary summary_l;
+            ceres::LossFunction *loss_function_l = new ceres::HuberLoss(0.8);
+            ceres::LocalParameterization* local_parameterization_l = new ceres::QuaternionParameterization();
+            double q_relate[4];
+            double t_relate[3];
+            // std::cout << "q_relate address: " << std::hex << q_relate <<", " << t_relate << ", " << std::dec << std::endl;
+            static int relate_opt_size = 30;
+
             for (int i = 0; i < length; i++, iter++)
             {
             	vector<double> globalPose{t_array_xy[i][0], t_array_xy[i][1], t_array_z[i][0],
             							  q_array[i][0], q_array[i][1], q_array[i][2], q_array[i][3]};
             	iter->second = globalPose;
-                static uint relate_size = (20 > min_size) ? min_size : 20;
                 // local optimization get relation between vision and global
-                ceres::Problem problem_l;
-                ceres::Solver::Options options_l;
-                options_l.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
-                options_l.max_num_iterations = 5;
-                ceres::Solver::Summary summary_l;
-                ceres::LocalParameterization* local_parameterization = new ceres::QuaternionParameterization();
-                double q_relate[4];
-                double t_relate[3];
-            	if(i >= length - 1 - relate_size)
+                
+            	if((length - relate_opt_size >=0) && (i >= length - relate_opt_size))
             	{   
                     double t = iter->first;
                     Eigen::Quaterniond q_v(localPoseMap[t][3], localPoseMap[t][4], localPoseMap[t][5], localPoseMap[t][6]);
                     Eigen::Vector3d p_v(localPoseMap[t][0], localPoseMap[t][1], localPoseMap[t][2]);
-                    Eigen::Quaterniond q_w(globalPose[t][3], globalPose[t][4], globalPose[t][5], globalPose[t][6]);
-                    Eigen::Vector3d p_w(globalPose[t][0], globalPose[t][1], globalPose[t][2]);
-                    if (i == length - 1 - relate_size){
-                        Eigen::Quaterniond q_w_v = q_w*q_v.inverse();
-                        Eigen::Vector3d t_w_v = -sim_scale*q_w_v*p_v + p_w;
+                    Eigen::Quaterniond q_w(globalPoseMap[t][3], globalPoseMap[t][4], globalPoseMap[t][5], globalPoseMap[t][6]);
+                    Eigen::Vector3d p_w(globalPoseMap[t][0], globalPoseMap[t][1], globalPoseMap[t][2]);
+                    if (i == length - relate_opt_size){
+                        Eigen::Quaterniond q_w_v(WGPS_T_WVIO.block<3,3>(0,0));
+                        Eigen::Vector3d t_w_v = WGPS_T_WVIO.block<3,1>(0,3);
                         q_relate[0] = q_w_v.w();
                         q_relate[1] = q_w_v.x();
                         q_relate[2] = q_w_v.y();
@@ -281,13 +297,18 @@ void GlobalOptimization::optimize()
                         t_relate[0] = t_w_v.x();
                         t_relate[1] = t_w_v.y();
                         t_relate[2] = t_w_v.z();
-                        problem_l.AddParameterBlock(q_relate, 4, local_parameterization);
+                        problem_l.AddParameterBlock(q_relate, 4, local_parameterization_l);
                         problem_l.AddParameterBlock(t_relate, 3);
                     }
-                    ceres::CostFunction* cost_fun = new simFactorAuto::Create(q_w, p_w, q_v, p_v, sim_scale[0]);
-                    problem_l.AddResidualBlock(cost_fun, nullptr, q_relate, t_relate);
+                    // std::cout << q_relate[0] << ", "<< q_relate[1] << ", "<< q_relate[2] << ", "<< q_relate[3] << ", "<< t_relate[0] << ", "<< t_relate[1] << ", "<< t_relate[2] << std::endl;
+                    // std::cout << q_w.vec().transpose() << ", " << p_w.transpose() << ", " << q_v.vec().transpose() << ", " <<  p_v.transpose() << ", " << sim_scale[0] << std::endl;
+                    ceres::CostFunction* cost_fun = localAlignAuto::Create(q_w, p_w, q_v, p_v, sim_scale[0]);
+                    problem_l.AddResidualBlock(cost_fun, loss_function_l, q_relate, t_relate);
             	}
+            }
+            if (length >= relate_opt_size){
                 ceres::Solve(options_l, &problem_l, &summary_l);
+                std::cout << "scale: " << sim_scale[0] << std::endl;
                 Eigen::Quaterniond q_w_v(q_relate[0], q_relate[1], q_relate[2], q_relate[3]);
                 Eigen::Vector3d t_w_v(t_relate[0], t_relate[1], t_relate[2]);
                 WGPS_T_WVIO.block<3,3>(0,0) = q_w_v.toRotationMatrix();
@@ -300,7 +321,7 @@ void GlobalOptimization::optimize()
             ofstream fout_time("/home/bdai/output/global_opt_time.txt", std::ios::app);
             fout_time.setf(ios::fixed, ios::floatfield);
             fout_time.precision(6);
-            fout_time << localPoseMap.rbegin()->first << " " << globalOptimizationTime.toc() << endl;
+            fout_time << localPoseMap.rbegin()->first << " " << globalOptimizationTime.toc() << " " << sim_scale[0] << endl;
             fout_time.close();
         }
         std::chrono::milliseconds dura(50);

@@ -86,7 +86,7 @@ void CameraPoseVisualization::add_loopedge(const Eigen::Vector3d& p0, const Eige
     marker.id = m_markers.size() + 1;
     marker.type = visualization_msgs::Marker::LINE_LIST;
     marker.action = visualization_msgs::Marker::ADD;
-    marker.scale.x = 0.04;
+    marker.scale.x = 0.4;
     //marker.scale.x = 0.3;
 
     marker.color.r = 1.0f;

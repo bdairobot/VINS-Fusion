@@ -34,7 +34,7 @@ using namespace std;
 GlobalOptimization globalEstimator;
 ros::Publisher pub_global_pose, pub_gps_pose;
 ros::Publisher pub_global_kf_path, pub_global_path, pub_gps_path, pub_gp_odom_path;
-ros::Publisher pub_baro_height;
+ros::Publisher pub_baro_height, pub_tmp_point;
 ros::Publisher pub_vins_restart;
 ros::Subscriber sub_myeye_imu;
 nav_msgs::Path *global_kf_path, global_path, gps_path, gp_odom_path;
@@ -59,7 +59,7 @@ static const float BETA_TABLE[5] = {0,
                     7.78
 				   };
 static double NOISE_BARO = 1.5;
-static double NOISE_ATT = 0.05;
+static double NOISE_ATT = 0.02;
 
 static uint BUF_DURATION = 5;
 
@@ -125,11 +125,11 @@ void GPS_callback(const sensor_msgs::NavSatFixConstPtr &GPS_msg)
         geoConverter.Forward(GPS_msg->latitude, GPS_msg->longitude,GPS_msg->altitude, xyz[0],xyz[1],xyz[2]);
            //printf("gps_callback! ");
         
-        static vector<double> last_gps_dev; 
+        static double last_gps_dev[3] = {0.0,0.0,0.0}; 
         static double diff_gps_dev_xy = 0;
         static double diff_gps_dev_z = 0;
 
-        if (last_gps_dev.size()>0){
+        if (last_gps_dev[0] > 0.0){
             diff_gps_dev_xy = 0.3*diff_gps_dev_xy + 0.7 *(sqrt(GPS_msg->position_covariance[0]) - last_gps_dev[1])/(gps_t -  last_gps_dev[0]);
 
             diff_gps_dev_z = 0.3*diff_gps_dev_z + 0.7 *(sqrt(GPS_msg->position_covariance[8]) - last_gps_dev[2])/(gps_t -  last_gps_dev[0]);
@@ -137,7 +137,16 @@ void GPS_callback(const sensor_msgs::NavSatFixConstPtr &GPS_msg)
        
         vector<double> gps_info = {xyz[0],xyz[1],xyz[2], GPS_msg->position_covariance[0],GPS_msg->position_covariance[8], diff_gps_dev_xy, diff_gps_dev_z};
         m_buf.lock();
+        last_gps_dev[0] = gps_t;
+        last_gps_dev[1] = sqrt(GPS_msg->position_covariance[0]);
+        last_gps_dev[2] = sqrt(GPS_msg->position_covariance[8]);
         tmpGPSQueue.push(make_pair(gps_t, gps_info));
+        geometry_msgs::PointStamped test;
+        test.header = pose_gps.header;
+        test.point.x = sqrt(GPS_msg->position_covariance[0]);
+        test.point.y = diff_gps_dev_xy;
+        test.point.z = diff_gps_dev_xy / sqrt(GPS_msg->position_covariance[0]) * 10;
+        pub_tmp_point.publish(test);
         // store 3s data
         m_buf.unlock();
         if (tmpGPSQueue.size() > 5 * BUF_DURATION)
@@ -240,7 +249,6 @@ void keyframe_callback(const nav_msgs::OdometryConstPtr &pose_msg)
             pose_gps.pose.position.y = map_GPS[kf_t][1];
             pose_gps.pose.position.z = map_GPS[kf_t][2];
             pose_gps.pose.orientation.w = 1.0;
-            std::cout << "dev: " << map_GPS[kf_t][3] << ", " << map_GPS[kf_t][4] << std::endl;
             pub_gps_pose.publish(pose_gps);
         }
         if(map_Baro.find(kf_t) != map_Baro.end())
@@ -490,6 +498,7 @@ int main(int argc, char **argv)
     pub_gps_pose = n.advertise<geometry_msgs::PoseStamped>("gps_pose", 100);
     pub_baro_height = n.advertise<geometry_msgs::PointStamped>("baro_height", 100);
     pub_vins_restart = n.advertise<std_msgs::Bool>("/vins_restart", 100);
+    pub_tmp_point = n.advertise<geometry_msgs::PointStamped> ("/test_point", 100);
 
     ros::spin();
     std::ofstream foutKF("/home/bdai/output/global_kf_path.txt", std::ios::out);

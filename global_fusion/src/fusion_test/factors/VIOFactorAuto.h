@@ -20,7 +20,7 @@ struct VIOFactorAuto
 				   p_dev(p_dev), q_dev(q_dev){}
 
 	template <typename T>
-	bool operator()(const T* const q_w_i, const T* p_i_xy, const T* p_i_z, const T* q_w_j, const T* p_j_xy, const T* p_j_z, T* residuals) const
+	bool operator()(const T* q_w_i, const T* p_i_xy, const T* p_i_z, const T* q_w_j, const T* p_j_xy, const T* p_j_z, T* residuals) const
 	{
 		T t_w_ij[3];
 		t_w_ij[0] = p_j_xy[0] - p_i_xy[0];
@@ -74,7 +74,7 @@ struct VIOSimFactorAuto
 				   p_dev(p_dev), q_dev(q_dev){}
 
 	template <typename T>
-	bool operator()(const T* const q_w_i, const T* p_i_xy, const T* p_i_z, const T* q_w_j, const T* p_j_xy, const T* p_j_z, const T* scale, T* residuals) const
+	bool operator()(const T* q_w_i, const T* p_i_xy, const T* p_i_z, const T* q_w_j, const T* p_j_xy, const T* p_j_z, const T* scale, T* residuals) const
 	{
 		T t_w_ij[3];
 		t_w_ij[0] = p_j_xy[0] - p_i_xy[0];
@@ -85,9 +85,9 @@ struct VIOSimFactorAuto
 		T t_i_ij[3];
 		ceres::QuaternionRotatePoint(q_i_w, t_w_ij, t_i_ij);
 
-		residuals[0] = (t_i_ij[0] - scale * T(t_x)) / T(p_dev);
-		residuals[1] = (t_i_ij[1] - scale * T(t_y)) / T(p_dev);
-		residuals[2] = (t_i_ij[2] - scale * T(t_z)) / T(p_dev);
+		residuals[0] = (t_i_ij[0] - scale[0] * T(t_x)) / T(p_dev);
+		residuals[1] = (t_i_ij[1] - scale[0] * T(t_y)) / T(p_dev);
+		residuals[2] = (t_i_ij[2] - scale[0] * T(t_z)) / T(p_dev);
 
 		T relative_q[4] = {T(q_w), T(q_x), T(q_y), T(q_z)};
 		T q_i_j[4];
@@ -108,8 +108,8 @@ struct VIOSimFactorAuto
 									   const double p_dev, const double q_dev) 
 	{
 	  return (new ceres::AutoDiffCostFunction<
-	          VIOFactorAuto, 6, 4, 2, 1, 4, 2, 1, 1>(
-	          	new VIOFactorAuto(t_x, t_y, t_z, q_w, q_x, q_y, q_z, p_dev, q_dev)));
+	          VIOSimFactorAuto, 6, 4, 2, 1, 4, 2, 1, 1>(
+	          	new VIOSimFactorAuto(t_x, t_y, t_z, q_w, q_x, q_y, q_z, p_dev, q_dev)));
 	}
 
 	double t_x, t_y, t_z;

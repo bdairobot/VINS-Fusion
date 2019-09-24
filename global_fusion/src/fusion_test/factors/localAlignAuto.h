@@ -34,9 +34,9 @@ struct localAlignAuto
 		T q_w_inv[4] = {T(_q_w.w()), -T(_q_w.x()), -T(_q_w.y()), -T(_q_w.z())};
 		T error_q[4];
 		ceres::QuaternionProduct(q_w_inv, tmp_q, error_q);
-		residuals[3] = T(2) * error_q[1] / T(0.5);
-		residuals[4] = T(2) * error_q[2] / T(0.5);
-		residuals[5] = T(2) * error_q[3] / T(0.5);
+		residuals[3] = T(2) * error_q[1] / T(0.1);
+		residuals[4] = T(2) * error_q[2] / T(0.1);
+		residuals[5] = T(2) * error_q[3] / T(0.1);
 
 		return true;
 	}

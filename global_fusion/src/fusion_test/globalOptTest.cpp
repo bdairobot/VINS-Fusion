@@ -39,6 +39,8 @@ void GlobalOptimization::restart()
     mPoseMap.lock();
     newGPS = newBaro = newAtt =false;
     att_init = pos_init = false;
+    sim_scale[0] = 1.0;
+    mag_decl[0][0] = -0.0 / 180.0 * 3.14159;
     WGPS_T_WVIO = Eigen::Matrix4d::Identity();
     localPoseMap.clear();
     globalPoseMap.clear();
@@ -104,16 +106,16 @@ void GlobalOptimization::inputAtt(double att_t, vector<double> &Att)
 
 void GlobalOptimization::optimize()
 {
-    std::ofstream fout_time("/home/bdai/output/global_opt_time.txt", std::ios::out);
+    std::ofstream fout_time("/home/bdai/output/global_opt_param.txt", std::ios::out);
     fout_time.close();
-    static int min_size = 10, max_local_size =80;
+    static int min_size = 10, min_scale_size = 30, max_scale_size = 60;
+    static int relate_opt_size = 30;
     while(true){
         if(newGPS || newAtt || newBaro){
-            int length = localPoseMap.size();
-            if (length < min_size) {
-                std::chrono::milliseconds dura(500);
+            
+            if (localPoseMap.size() < uint(min_size)) {
+                std::chrono::milliseconds dura(200);
                 std::this_thread::sleep_for(dura);
-                std::cout << "No optimization, localPoseMap size is: " << length << ", it must > " << min_size << std::endl;
                 continue;
             }
             // std::cout << "global optimization!" << std::endl;
@@ -130,7 +132,7 @@ void GlobalOptimization::optimize()
 
             //add global parameters
             mPoseMap.lock();
-            
+            int length = localPoseMap.size(); // Each time read message about local PoseMap, lock first
             // w^t_i   w^q_i
             double t_array_xy[length][2];
             double t_array_z[length][1];
@@ -148,15 +150,13 @@ void GlobalOptimization::optimize()
                 problem.AddParameterBlock(q_array[i], 4, local_parameterization);
                 problem.AddParameterBlock(t_array_xy[i], 2);
                 problem.AddParameterBlock(t_array_z[i], 1);
-                if (i >= length -2)
-                    std::cout << "Address: " << std::hex << q_array[i] << ", " << t_array_xy[i] << ", " << t_array_z[i] << std::dec << std::endl;
             }
             // add mag decline degree
             problem.AddParameterBlock(mag_decl[0], 1);
             problem.AddParameterBlock(sim_scale, 1);
-            //if (!newGPS)
-            //    problem.SetParameterBlockConstant(mag_decl[0]);
             static int opt_length = 2000;
+            // if (length < relate_opt_size)
+            //    problem.SetParameterBlockConstant(mag_decl[0]);
             if (length > opt_length){
                 for (int i = 0; i < length - opt_length; i++) {
                     problem.SetParameterBlockConstant(q_array[i]);
@@ -164,7 +164,6 @@ void GlobalOptimization::optimize()
                     problem.SetParameterBlockConstant(t_array_z[i]);
                 }
             }
-            std::cout << "mag_decl: " << mag_decl[0][0] * 180.0/3.14159 << " VIO size: " << localPoseMap.size() << " GPS size: " << GPSPositionMap.size() << " ATT size: " << attMap.size() << " Baro size: " << baroMap.size() << std::endl;
 
             map<double, vector<double>>::iterator iterVIO, iterVIONext, iterGPS, iterBaro, iterAtt;
             int i = 0;
@@ -205,7 +204,7 @@ void GlobalOptimization::optimize()
                     iQj = iTj.block<3, 3>(0, 0);
                     Eigen::Vector3d iPj = iTj.block<3, 1>(0, 3);
 
-                    if (i >= length - max_local_size){ // factor for sim scale
+                    if (i >= length - max_scale_size && length  >= min_scale_size){ // factor for sim scale
                         ceres::CostFunction* vio_function = VIOSimFactorAuto::Create(iPj.x(), iPj.y(), iPj.z(),
                                                                                 iQj.w(), iQj.x(), iQj.y(), iQj.z(),
                                                                                 0.1, 0.01);
@@ -225,8 +224,8 @@ void GlobalOptimization::optimize()
                 if (iterGPS != GPSPositionMap.end()){
                     GPSFactor* gps_cost = new GPSFactor(iterGPS->second[0], iterGPS->second[1], iterGPS->second[2], sqrt(iterGPS->second[3]), 100);
                     problem.AddResidualBlock(gps_cost, loss_function, t_array_xy[i], t_array_z[i]);
-                    if (i >= length - max_local_size) {
-                       update_scale = (update_scale && (
+                    if (i >= length - max_scale_size) {
+                       update_scale = (update_scale && (length  >= min_scale_size) && (
                             (iterGPS->second[3] < 16 && iterGPS->second[3] >= 9 && iterGPS->second[5]<0.15) || 
                             (iterGPS->second[3] < 9 && iterGPS->second[3] >= 4 && iterGPS->second[5]<0.1) || 
                             (iterGPS->second[3] < 4  && iterGPS->second[5]<0.05)));
@@ -261,70 +260,243 @@ void GlobalOptimization::optimize()
             // update global pose
             mPoseMap.lock();
             iter = globalPoseMap.begin();
-            ceres::Problem problem_l;
-            ceres::Solver::Options options_l;
-            options_l.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
-            options_l.max_num_iterations = 5;
-            ceres::Solver::Summary summary_l;
-            ceres::LossFunction *loss_function_l = new ceres::HuberLoss(0.8);
-            ceres::LocalParameterization* local_parameterization_l = new ceres::QuaternionParameterization();
-            double q_relate[4];
-            double t_relate[3];
-            // std::cout << "q_relate address: " << std::hex << q_relate <<", " << t_relate << ", " << std::dec << std::endl;
-            static int relate_opt_size = 30;
-
             for (int i = 0; i < length; i++, iter++)
             {
             	vector<double> globalPose{t_array_xy[i][0], t_array_xy[i][1], t_array_z[i][0],
             							  q_array[i][0], q_array[i][1], q_array[i][2], q_array[i][3]};
             	iter->second = globalPose;
-                // local optimization get relation between vision and global
-                
-            	if((length - relate_opt_size >=0) && (i >= length - relate_opt_size))
-            	{   
-                    double t = iter->first;
-                    Eigen::Quaterniond q_v(localPoseMap[t][3], localPoseMap[t][4], localPoseMap[t][5], localPoseMap[t][6]);
-                    Eigen::Vector3d p_v(localPoseMap[t][0], localPoseMap[t][1], localPoseMap[t][2]);
-                    Eigen::Quaterniond q_w(globalPoseMap[t][3], globalPoseMap[t][4], globalPoseMap[t][5], globalPoseMap[t][6]);
-                    Eigen::Vector3d p_w(globalPoseMap[t][0], globalPoseMap[t][1], globalPoseMap[t][2]);
-                    if (i == length - relate_opt_size){
-                        Eigen::Quaterniond q_w_v(WGPS_T_WVIO.block<3,3>(0,0));
-                        Eigen::Vector3d t_w_v = WGPS_T_WVIO.block<3,1>(0,3);
-                        q_relate[0] = q_w_v.w();
-                        q_relate[1] = q_w_v.x();
-                        q_relate[2] = q_w_v.y();
-                        q_relate[3] = q_w_v.z();
-                        t_relate[0] = t_w_v.x();
-                        t_relate[1] = t_w_v.y();
-                        t_relate[2] = t_w_v.z();
-                        problem_l.AddParameterBlock(q_relate, 4, local_parameterization_l);
-                        problem_l.AddParameterBlock(t_relate, 3);
-                    }
-                    // std::cout << q_relate[0] << ", "<< q_relate[1] << ", "<< q_relate[2] << ", "<< q_relate[3] << ", "<< t_relate[0] << ", "<< t_relate[1] << ", "<< t_relate[2] << std::endl;
-                    // std::cout << q_w.vec().transpose() << ", " << p_w.transpose() << ", " << q_v.vec().transpose() << ", " <<  p_v.transpose() << ", " << sim_scale[0] << std::endl;
-                    ceres::CostFunction* cost_fun = localAlignAuto::Create(q_w, p_w, q_v, p_v, sim_scale[0]);
-                    problem_l.AddResidualBlock(cost_fun, loss_function_l, q_relate, t_relate);
-            	}
             }
-            if (length >= relate_opt_size){
+            mPoseMap.unlock();
+            // do ransac
+
+            int local_size = (length > relate_opt_size) ? relate_opt_size : length;
+            double t_buff[local_size];
+            mPoseMap.lock();
+            auto it = globalPoseMap.rbegin();
+            for (int j = 0; j < local_size; j++, it++)
+                t_buff[j] = it->first;
+           
+
+            TicToc local_opt_time;
+            if (length < relate_opt_size || true) {
+                ceres::Problem problem_l;
+                ceres::Solver::Options options_l;
+                options_l.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
+                options_l.max_num_iterations = 5;
+                ceres::Solver::Summary summary_l;
+                ceres::LossFunction *loss_function_l = new ceres::HuberLoss(0.5);
+                ceres::LocalParameterization* local_parameterization_l = new ceres::QuaternionParameterization();
+                double q_relate[4];
+                double t_relate[3];
+                Eigen::Quaterniond q_w_v(WGPS_T_WVIO.block<3,3>(0,0));
+                Eigen::Vector3d t_w_v = WGPS_T_WVIO.block<3,1>(0,3);
+                q_relate[0] = q_w_v.w();
+                q_relate[1] = q_w_v.x();
+                q_relate[2] = q_w_v.y();
+                q_relate[3] = q_w_v.z();
+                t_relate[0] = t_w_v.x();
+                t_relate[1] = t_w_v.y();
+                t_relate[2] = t_w_v.z();
+                problem_l.AddParameterBlock(q_relate, 4, local_parameterization_l);
+                problem_l.AddParameterBlock(t_relate, 3);
+                for (int i = 0; i < local_size; i++){
+                    double index = t_buff[i];
+                    Eigen::Quaterniond q_v(localPoseMap[index][3], localPoseMap[index][4], localPoseMap[index][5], localPoseMap[index][6]);
+                    Eigen::Vector3d p_v(localPoseMap[index][0], localPoseMap[index][1], localPoseMap[index][2]);
+                    Eigen::Quaterniond q_w(globalPoseMap[index][3], globalPoseMap[index][4], globalPoseMap[index][5], globalPoseMap[index][6]);
+                    Eigen::Vector3d p_w(globalPoseMap[index][0], globalPoseMap[index][1], globalPoseMap[index][2]);
+                    ceres::CostFunction *cost_fun = localAlignAuto::Create(q_w, p_w, q_v, p_v, sim_scale[0]);
+                    problem_l.AddResidualBlock(cost_fun, loss_function_l, q_relate, t_relate);                    
+                }
                 ceres::Solve(options_l, &problem_l, &summary_l);
-                std::cout << "scale: " << sim_scale[0] << std::endl;
-                Eigen::Quaterniond q_w_v(q_relate[0], q_relate[1], q_relate[2], q_relate[3]);
-                Eigen::Vector3d t_w_v(t_relate[0], t_relate[1], t_relate[2]);
-                WGPS_T_WVIO.block<3,3>(0,0) = q_w_v.toRotationMatrix();
-                WGPS_T_WVIO.block<3,1>(0,3) = t_w_v;
-            }
+                WGPS_T_WVIO.block<3,3>(0,0) = Eigen::Quaterniond(q_relate[0], q_relate[1], q_relate[2], q_relate[3]).toRotationMatrix();
+                WGPS_T_WVIO.block<3,1>(0,3) = Eigen::Vector3d(t_relate[0], t_relate[1], t_relate[2]);
+
+            } /* else {
+                int ransac_conter = 10, remove_num = 5;
+                std::map<int, int> error_vote;
+                for (int i = 0; i < ransac_conter; i++ ){
+                    ceres::Problem problem_l;
+                    ceres::Solver::Options options_l;
+                    options_l.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
+                    options_l.max_num_iterations = 5;
+                    ceres::Solver::Summary summary_l;
+                    ceres::LossFunction *loss_function_l = new ceres::HuberLoss(1);
+                    ceres::LocalParameterization* local_parameterization_l = new ceres::QuaternionParameterization();
+                    double q_relate[4];
+                    double t_relate[3];
+                    Eigen::Quaterniond q_w_v(WGPS_T_WVIO.block<3,3>(0,0));
+                    Eigen::Vector3d t_w_v = WGPS_T_WVIO.block<3,1>(0,3);
+                    q_relate[0] = q_w_v.w();
+                    q_relate[1] = q_w_v.x();
+                    q_relate[2] = q_w_v.y();
+                    q_relate[3] = q_w_v.z();
+                    t_relate[0] = t_w_v.x();
+                    t_relate[1] = t_w_v.y();
+                    t_relate[2] = t_w_v.z();
+                    problem_l.AddParameterBlock(q_relate, 4, local_parameterization_l);
+                    problem_l.AddParameterBlock(t_relate, 3);
+
+                    list<int> random_nums;
+                    for (int j= 0; j < remove_num;){
+                        int num = (rand() % relate_opt_size);
+                        if (random_nums.empty()) {
+                            random_nums.push_back(num); j++;
+                        } else {
+                            auto it = random_nums.begin();
+                            while (it != random_nums.end()){
+                                if (*it == num) break;
+                                else if (num < *it) {
+                                    random_nums.insert(it, num); j++; break;
+                                } else it++;
+                            }
+                            if (it == random_nums.end()){random_nums.push_back(num); j++;}
+                        }  
+                    }
+                    // std::cout << "Random numbers: ";
+                    // for (auto it : random_nums){
+                    //     std::cout << it << " ";
+                    // }
+                    // std::cout << std::endl;
+                    
+                    ceres::CostFunction* cost_fun[relate_opt_size];
+                    auto it = random_nums.begin();
+                    for (int j = 0; j < relate_opt_size; j++){
+                            double index = t_buff[j];
+                            Eigen::Quaterniond q_v(localPoseMap[index][3], localPoseMap[index][4], localPoseMap[index][5], localPoseMap[index][6]);
+                            Eigen::Vector3d p_v(localPoseMap[index][0], localPoseMap[index][1], localPoseMap[index][2]);
+                            Eigen::Quaterniond q_w(globalPoseMap[index][3], globalPoseMap[index][4], globalPoseMap[index][5], globalPoseMap[index][6]);
+                            Eigen::Vector3d p_w(globalPoseMap[index][0], globalPoseMap[index][1], globalPoseMap[index][2]);
+                            cost_fun[j] = localAlignAuto::Create(q_w, p_w, q_v, p_v, sim_scale[0]);
+                        if (it != random_nums.end() && j == *it) {
+                            it++; continue;
+                        } else
+                            problem_l.AddResidualBlock(cost_fun[j], loss_function_l, q_relate, t_relate);
+                    }
+                    ceres::Solve(options_l, &problem_l, &summary_l);
+
+                    double tmp_pos_res = 0.0, tmp_q_res = 0.0;
+                    double *res = new double[6];
+                    double **param = new double*[2];
+                    param[0] = q_relate;
+                    param[1] = t_relate;
+                    
+                    std::cout.setf(ios::fixed);
+                    std::cout.precision(4);
+                    std::map<int, double> error_map;
+                    // std::cout << "P Res: ";
+                    for (int j = 0; j < relate_opt_size; j++){
+                        cost_fun[j]->Evaluate(param, res, nullptr);
+                        // std::cout << fixed <<"["<< j << "]" << sqrt(res[0]*res[0] + res[1]*res[1] + res[2]*res[2]) << " ";
+                        // tmp_pos_res += sqrt(res[0]*res[0] + res[1]*res[1] + res[2]*res[2]);
+                        error_map[j] = sqrt(res[0]*res[0] + res[1]*res[1] + res[2]*res[2]);
+                        // tmp_q_res += sqrt(res[3]*res[3] + res[4]*res[4] + res[5]*res[5]);                        
+                    }
+                    // extract five bigest errors
+                    for (int j = 0; j < remove_num; j++ ){
+                        int biggest_num = 0;
+                        double biggest_error = 0.0;
+                        for (auto it : error_map){
+                            // if first element
+                            if (it.first == error_map.begin()->first){
+                                biggest_num = it.first;
+                                biggest_error = it.second;
+                            } else if(it.second > biggest_error){
+                                biggest_num = it.first;
+                                biggest_error = it.second;
+                            } 
+                        }
+                        if (error_vote.find(biggest_num) != error_vote.end())
+                            error_vote[biggest_num] = error_vote[biggest_num] + 1;
+                        else
+                            error_vote[biggest_num] = 1;
+                        error_map.erase(biggest_num);
+                    }
+                }
+                std::cout << "error_vote: ";
+                for (auto it : error_vote)
+                    std::cout << "[" << it.first <<"]: " << it.second << " ";
+                std::cout << std::endl;
+
+                // std::list<int> ignore_nums = {-1,-1,-1,-1,-1};
+                std::list<int> ignore_nums;
+                // extract five bigest number
+                for (int j = 0; j < remove_num; j++ ){
+                    int biggest_num = 0, biggest_counter = 0;
+                    for (auto it : error_vote){
+                        // if first element
+                        if (it.first == error_vote.begin()->first){
+                            biggest_num = it.first;
+                            biggest_counter = it.second;
+                        } else if(it.second > biggest_counter){
+                            biggest_num = it.first;
+                            biggest_counter = it.second;
+                        }
+                    }
+                    ignore_nums.push_back(biggest_num);
+                    error_vote.erase(biggest_num);
+                }
+                ignore_nums.sort();
+                std::cout << "ignore_nums: ";
+                for (auto it : ignore_nums)
+                    std::cout << it << " ";
+                std::cout << std::endl;
+
+                // optimization again
+                ceres::Problem problem_l;
+                ceres::Solver::Options options_l;
+                options_l.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
+                options_l.max_num_iterations = 5;
+                ceres::Solver::Summary summary_l;
+                ceres::LossFunction *loss_function_l = new ceres::HuberLoss(1);
+                ceres::LocalParameterization* local_parameterization_l = new ceres::QuaternionParameterization();
+                double q_relate[4];
+                double t_relate[3];
+                Eigen::Quaterniond q_w_v(WGPS_T_WVIO.block<3,3>(0,0));
+                Eigen::Vector3d t_w_v = WGPS_T_WVIO.block<3,1>(0,3);
+                q_relate[0] = q_w_v.w();
+                q_relate[1] = q_w_v.x();
+                q_relate[2] = q_w_v.y();
+                q_relate[3] = q_w_v.z();
+                t_relate[0] = t_w_v.x();
+                t_relate[1] = t_w_v.y();
+                t_relate[2] = t_w_v.z();
+                problem_l.AddParameterBlock(q_relate, 4, local_parameterization_l);
+                problem_l.AddParameterBlock(t_relate, 3);
+
+                auto it = ignore_nums.begin();
+                for (int j = 0; j < relate_opt_size; j++){
+                        double index = t_buff[j];
+                        Eigen::Quaterniond q_v(localPoseMap[index][3], localPoseMap[index][4], localPoseMap[index][5], localPoseMap[index][6]);
+                        Eigen::Vector3d p_v(localPoseMap[index][0], localPoseMap[index][1], localPoseMap[index][2]);
+                        Eigen::Quaterniond q_w(globalPoseMap[index][3], globalPoseMap[index][4], globalPoseMap[index][5], globalPoseMap[index][6]);
+                        Eigen::Vector3d p_w(globalPoseMap[index][0], globalPoseMap[index][1], globalPoseMap[index][2]);
+                        ceres::CostFunction* cost_fun = localAlignAuto::Create(q_w, p_w, q_v, p_v, sim_scale[0]);
+                    if (it!= ignore_nums.end() && j == *it) {
+                        it++; continue;
+                    } else
+                        problem_l.AddResidualBlock(cost_fun, loss_function_l, q_relate, t_relate);
+                }
+                std::cout << "problem_l NumResidualBlocks: " << problem_l.NumResidualBlocks() << std::endl;
+                ceres::Solve(options_l, &problem_l, &summary_l);
+                WGPS_T_WVIO.block<3,3>(0,0) = Eigen::Quaterniond(q_relate[0], q_relate[1], q_relate[2], q_relate[3]).toRotationMatrix();
+                WGPS_T_WVIO.block<3,1>(0,3) = Eigen::Vector3d(t_relate[0], t_relate[1], t_relate[2]);
+            } */
+           
             newGPS = newBaro = newAtt = false;
             updateGlobalPath();
             mPoseMap.unlock();
-            printf("global time %f \n", globalOptimizationTime.toc());
-            ofstream fout_time("/home/bdai/output/global_opt_time.txt", std::ios::app);
+
+            std::cout.setf(ios::fixed);
+            std::cout.precision(2);
+            std::cout << "global time : " << globalOptimizationTime.toc() << " local time: " << local_opt_time.toc() << " scale: " << sim_scale[0] << " mag_decl: " << mag_decl[0][0] * 180.0/3.14159 <<" VIO size: " << localPoseMap.size() << " GPS size: " << GPSPositionMap.size() << " ATT size: " << attMap.size()<< std::endl;
+            ofstream fout_time("/home/bdai/output/global_opt_param.txt", std::ios::app);
             fout_time.setf(ios::fixed, ios::floatfield);
             fout_time.precision(6);
-            fout_time << localPoseMap.rbegin()->first << " " << globalOptimizationTime.toc() << " " << sim_scale[0] << endl;
+            fout_time << localPoseMap.rbegin()->first << " " << globalOptimizationTime.toc() << " " << local_opt_time.toc() << " " << sim_scale[0] << " " << localPoseMap.size()<< endl;
             fout_time.close();
         }
-        std::chrono::milliseconds dura(50);
+        std::chrono::milliseconds dura(100);
         std::this_thread::sleep_for(dura);
         // std::cout << "GPSPositionMap size: " << GPSPositionMap.size() << std::endl;
 

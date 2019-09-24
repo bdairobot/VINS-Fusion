@@ -193,12 +193,11 @@ void baro_callback(const sensor_msgs::FluidPressureConstPtr &baro_msg)
     m_buf.lock();
     vector<double> baro_info = {filter_height - init_height, NOISE_BARO*NOISE_BARO};
     tmpBaroQueue.push(make_pair(baro_t,baro_info));
-    m_buf.unlock();
 
     // store 3s data
     if (tmpBaroQueue.size() > 50*BUF_DURATION)
         tmpBaroQueue.pop();
-    static unsigned int init_size = 20;
+    static unsigned int init_size = 10;
     if (!(init_flag & 1<<1) && tmpBaroQueue.size() == init_size){        
         init_height = filter_height;
         while (!tmpBaroQueue.empty())
@@ -206,6 +205,7 @@ void baro_callback(const sensor_msgs::FluidPressureConstPtr &baro_msg)
         init_flag |= 1<<1;
         ROS_INFO("init baro: height %8.4f", init_height);
     }
+    m_buf.unlock();
     if (init_flag & 1<<1){
         geometry_msgs::PointStamped baro_height;
         baro_height.header = baro_msg->header;
@@ -250,13 +250,14 @@ void keyframe_callback(const nav_msgs::OdometryConstPtr &pose_msg)
             pose_gps.pose.position.z = map_GPS[kf_t][2];
             pose_gps.pose.orientation.w = 1.0;
             pub_gps_pose.publish(pose_gps);
+            // std::cout << "map_GPS[kf_t]: " << map_GPS[kf_t][0] << ", " << map_GPS[kf_t][1] << ", " << map_GPS[kf_t][2] << std::endl;
         }
-        if(map_Baro.find(kf_t) != map_Baro.end())
+        if(map_Baro.find(kf_t) != map_Baro.end()){
             globalEstimator.inputBaro(kf_t, map_Baro[kf_t]);
-        if(map_Att.find(kf_t) != map_Att.end()){
-            
-            globalEstimator.inputAtt(kf_t, map_Att[kf_t]);
+            // std::cout << "map_Baro[kf_t]: " << map_Baro[kf_t][0] << ", " << map_Baro[kf_t][1] << ", " << map_Baro[kf_t][2] << std::endl;
         }
+        if(map_Att.find(kf_t) != map_Att.end())
+            globalEstimator.inputAtt(kf_t, map_Att[kf_t]);
         globalEstimator.inputKeyframe(kf_t, vio_p, vio_q, cov, q_cov);
         map_buf.unlock();
         pub_global_kf_path.publish(*global_kf_path);
@@ -278,30 +279,31 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
     vio_q.y() = pose_msg->pose.pose.orientation.y;
     vio_q.z() = pose_msg->pose.pose.orientation.z;
 
-    //if (t - last_update_t > 0.25) {
-    //    globalEstimator.restart(); // vins restarted
-    //    ROS_INFO("restarting optimization! Here");
-    //}
+    if (t - last_update_t > 0.25) {
+       globalEstimator.restart(); // vins restarted
+       ROS_INFO("restarting optimization! Here");
+    }
 
+    if (!globalEstimator.att_init){
+        Eigen::Quaterniond att(1.0, 0.0, 0.0, 0.0);
+        if (!tmpAttQueue.empty()){
+            vector<double> att_info = tmpAttQueue.back().second;
+            att = Eigen::Quaterniond(att_info[0], att_info[1], att_info[2], att_info[3]);
+        }
+        globalEstimator.WGPS_T_WVIO.block<3,3>(0,0) = (att*vio_q.inverse()).toRotationMatrix();
+        globalEstimator.att_init = true;
+    }
     if (!globalEstimator.pos_init){
-        globalEstimator.pos_init = true;
         Eigen::Vector3d init_pos(0.0,0.0,0.0);
-        if (tmpGPSQueue.size()>0){
+        if (tmpGPSQueue.size()>0 && (init_flag & 1<<0)){
             init_pos(0) = tmpGPSQueue.back().second[0];
             init_pos(1) = tmpGPSQueue.back().second[1];                
         }
-        if (tmpBaroQueue.size()>0)
-            init_pos(2) = tmpBaroQueue.back().second[0];                
-        globalEstimator.WGPS_T_WVIO.block<3,1>(0,3) = init_pos;
-    }
-    if (!globalEstimator.att_init){
-        globalEstimator.att_init = true;
-        vector<double> att_info = tmpAttQueue.back().second;
-        Eigen::Quaterniond att(att_info[0], att_info[1], att_info[2], att_info[3]);
-        Eigen::Vector3d ypr = Utility::R2ypr(att.toRotationMatrix()) / 180.0*3.14159;
-        Eigen::Quaterniond att_yaw_correct = Eigen::Quaterniond(cos(ypr(0)/2.0), 0.0, 0.0, sin(ypr(0)/2.0))*vio_q.inverse();
-        std::cout<< "mag yaw: " << ypr(0) * 180.0 / 3.14159 << std::endl;
-        globalEstimator.WGPS_T_WVIO.block<3,3>(0,0) = att_yaw_correct.toRotationMatrix();
+        if (tmpBaroQueue.size()>0 && (init_flag & 1 << 1))
+            init_pos(2) = tmpBaroQueue.back().second[0]; 
+        
+        globalEstimator.WGPS_T_WVIO.block<3,1>(0,3) = init_pos - globalEstimator.WGPS_T_WVIO.block<3,3>(0,0)*vio_p;
+        globalEstimator.pos_init = true;
     }
     // ROS_INFO("t - last_update_t: %8.4f", t - last_update_t);
     last_update_t = t;

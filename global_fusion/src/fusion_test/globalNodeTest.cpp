@@ -67,8 +67,9 @@ static uint BUF_DURATION = 5;
 static map<double, vector<double>> map_GPS; // x,y,z,xy_var,z_var. position
 static map<double, vector<double>> map_Baro; // z, z_var. position
 static map<double, vector<double>> map_Att; // w, x, y, z. var
-static double myeye_t = -1.0;
-static double gap_t = -1.0;
+static double myeye_t = 0.0;
+static double gap_t = 0.0;
+static bool time_aligned = false;
 
 class DataAnalyses {
 public:
@@ -100,7 +101,7 @@ private:
 
 void GPS_callback(const sensor_msgs::NavSatFixConstPtr &GPS_msg)
 {
-    if (gap_t < 0.0) return;
+    if (!time_aligned) return;
     double gps_t = GPS_msg->header.stamp.toSec();
     if (GPS_msg->status.status == -1){
         // error_flag |= 1<<0;
@@ -164,8 +165,12 @@ void GPS_callback(const sensor_msgs::NavSatFixConstPtr &GPS_msg)
 
 void baro_callback(const sensor_msgs::FluidPressureConstPtr &baro_msg)
 {   
-    if(gap_t < 0) return;
     double baro_t = baro_msg->header.stamp.toSec();
+    if (myeye_t >= 0.0 && !time_aligned){
+        gap_t = baro_t - myeye_t;
+        sub_myeye_imu.shutdown();
+        time_aligned = true;
+    }
     static double CONSTANTS_ABSOLUTE_NULL_CELSIUS = -273.15;
     static double CONSTANTS_AIR_GAS_CONST = 287.1f;
     static double BARO_MSL = 101.325; /* current pressure at MSL in kPa */
@@ -222,7 +227,7 @@ void baro_callback(const sensor_msgs::FluidPressureConstPtr &baro_msg)
 
 void keyframe_callback(const nav_msgs::OdometryConstPtr &pose_msg)
 {
-    if (gap_t < 0) return;
+    if (!time_aligned) return;
     // if (!(error_flag & 1<<3 && pose_msg->pose.covariance[0]>=0.0)){
     double cov = pose_msg->pose.covariance[0];
     double q_cov = pose_msg->pose.covariance[28];
@@ -267,7 +272,7 @@ void keyframe_callback(const nav_msgs::OdometryConstPtr &pose_msg)
 
 void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
 {
-    if (gap_t < 0) return;
+    if (!time_aligned) return;
     static double last_update_t = pose_msg->header.stamp.toSec() + gap_t;
     double t = pose_msg->header.stamp.toSec() + gap_t;
     // ROS_INFO("delta time between vision and imu: %8.4f", tmpAttQueue.back().first - t); // about 100ms
@@ -449,14 +454,8 @@ void myeye_imu_callback(const sensor_msgs::ImuConstPtr &imu_msg){
 }
 
 void imu_callback(const sensor_msgs::ImuConstPtr &imu_msg){
+    if (!time_aligned) return;
     double att_t = imu_msg->header.stamp.toSec();
-    if (myeye_t >= 0.0 && gap_t < 0.0){
-        if (att_t > myeye_t + 3.0)
-            gap_t = att_t - myeye_t;
-        else gap_t = 0.0;
-        ROS_INFO("gap_t: %f", gap_t);
-        sub_myeye_imu.shutdown();
-    }
     m_buf.lock();
     vector<double> att_info = {imu_msg->orientation.w, imu_msg->orientation.x, imu_msg->orientation.y, imu_msg->orientation.z, NOISE_ATT*NOISE_ATT};
     tmpAttQueue.push(make_pair(att_t, att_info));
@@ -502,6 +501,7 @@ int main(int argc, char **argv)
     pub_vins_restart = n.advertise<std_msgs::Bool>("/vins_restart", 100);
     pub_tmp_point = n.advertise<geometry_msgs::PointStamped> ("/test_point", 100);
 
+    std::cout << "Starting Global Fusion ..." << std::endl;
     ros::spin();
     std::ofstream foutKF("/home/bdai/output/global_kf_path.txt", std::ios::out);
     std::ofstream fout("/home/bdai/output/global_path.txt", std::ios::out);

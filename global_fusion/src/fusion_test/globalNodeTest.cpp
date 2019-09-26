@@ -59,7 +59,7 @@ static const float BETA_TABLE[5] = {0,
                     7.78
 				   };
 static double NOISE_BARO = 1.5;
-static double NOISE_ATT = 0.02;
+static double NOISE_ATT = 0.01;
 
 static uint BUF_DURATION = 5;
 
@@ -67,7 +67,7 @@ static uint BUF_DURATION = 5;
 static map<double, vector<double>> map_GPS; // x,y,z,xy_var,z_var. position
 static map<double, vector<double>> map_Baro; // z, z_var. position
 static map<double, vector<double>> map_Att; // w, x, y, z. var
-static double myeye_t = 0.0;
+static double myeye_t = -1.0;
 static double gap_t = 0.0;
 static bool time_aligned = false;
 
@@ -168,6 +168,8 @@ void baro_callback(const sensor_msgs::FluidPressureConstPtr &baro_msg)
     double baro_t = baro_msg->header.stamp.toSec();
     if (myeye_t >= 0.0 && !time_aligned){
         gap_t = baro_t - myeye_t;
+        gap_t = (gap_t< 0.5 && gap_t > -0.5) ? 0 : gap_t; 
+        std::cout << "Init gap time between pix and myeye: "<< gap_t << std::endl;
         sub_myeye_imu.shutdown();
         time_aligned = true;
     }
@@ -243,7 +245,7 @@ void keyframe_callback(const nav_msgs::OdometryConstPtr &pose_msg)
         vio_q.x() = pose_msg->pose.pose.orientation.x;
         vio_q.y() = pose_msg->pose.pose.orientation.y;
         vio_q.z() = pose_msg->pose.pose.orientation.z;
-
+	bool input_flag = false;
         map_buf.lock();
         if(map_GPS.find(kf_t) != map_GPS.end() && !(error_flag & 1<<0)){
             globalEstimator.inputGPS(kf_t, map_GPS[kf_t]);
@@ -255,17 +257,24 @@ void keyframe_callback(const nav_msgs::OdometryConstPtr &pose_msg)
             pose_gps.pose.position.z = map_GPS[kf_t][2];
             pose_gps.pose.orientation.w = 1.0;
             pub_gps_pose.publish(pose_gps);
+            input_flag = true;
             // std::cout << "map_GPS[kf_t]: " << map_GPS[kf_t][0] << ", " << map_GPS[kf_t][1] << ", " << map_GPS[kf_t][2] << std::endl;
         }
         if(map_Baro.find(kf_t) != map_Baro.end()){
             globalEstimator.inputBaro(kf_t, map_Baro[kf_t]);
             // std::cout << "map_Baro[kf_t]: " << map_Baro[kf_t][0] << ", " << map_Baro[kf_t][1] << ", " << map_Baro[kf_t][2] << std::endl;
+            input_flag = true;
         }
-        if(map_Att.find(kf_t) != map_Att.end())
+        if(map_Att.find(kf_t) != map_Att.end()){
             globalEstimator.inputAtt(kf_t, map_Att[kf_t]);
-        globalEstimator.inputKeyframe(kf_t, vio_p, vio_q, cov, q_cov);
+            input_flag = true;
+	}
+        if (input_flag){
+            globalEstimator.inputKeyframe(kf_t, vio_p, vio_q, cov, q_cov);
+            pub_global_kf_path.publish(*global_kf_path);
+        }
         map_buf.unlock();
-        pub_global_kf_path.publish(*global_kf_path);
+        
 
     }
 }
@@ -286,15 +295,21 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
 
     if (t - last_update_t > 0.25) {
        globalEstimator.restart(); // vins restarted
-       ROS_INFO("restarting optimization! Here");
+       std::cout << "No vio info for " << t - last_update_t << std::endl;
     }
+    last_update_t = t;
 
     if (!globalEstimator.att_init){
         Eigen::Quaterniond att(1.0, 0.0, 0.0, 0.0);
         if (!tmpAttQueue.empty()){
             vector<double> att_info = tmpAttQueue.back().second;
             att = Eigen::Quaterniond(att_info[0], att_info[1], att_info[2], att_info[3]);
+        } else {
+            static int i = 0; i++;
+            if(i >10) {i=0; std::cout << "Need att info to start..." << std::endl;}
+	    return;
         }
+
         globalEstimator.WGPS_T_WVIO.block<3,3>(0,0) = (att*vio_q.inverse()).toRotationMatrix();
         globalEstimator.att_init = true;
     }
@@ -310,8 +325,6 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
         globalEstimator.WGPS_T_WVIO.block<3,1>(0,3) = init_pos - globalEstimator.WGPS_T_WVIO.block<3,3>(0,0)*vio_p;
         globalEstimator.pos_init = true;
     }
-    // ROS_INFO("t - last_update_t: %8.4f", t - last_update_t);
-    last_update_t = t;
 
     //printf("vio_callback! ");
     // int vio_error_flag = int(-pose_msg->pose.covariance[0]);
@@ -363,11 +376,14 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
                     map_buf.unlock();
                     tmpBaroQueue.pop();
                     break;
-                } else
+                } else if (t - baro_t > 0.02){
                     tmpBaroQueue.pop();
+                    continue;
+                } else break;
             }
         }
     }
+    //std::cout << "map_Baro.size()" << map_Baro.size() << " tmpBaroQueue.size(): " <<tmpBaroQueue.size() << " t: " << t << " baro_t: " << tmpBaroQueue.back().first << "t-barot: " << t-tmpBaroQueue.back().first << std::endl;
 
     { // align with att
         static uint step = 10;
@@ -385,8 +401,10 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
                 map_buf.unlock();
                 tmpAttQueue.pop();
                 break;
-            } else
+            } else if (t - att_t > 0.02){
                 tmpAttQueue.pop();
+                continue;
+            } else break;
         }
     }
 

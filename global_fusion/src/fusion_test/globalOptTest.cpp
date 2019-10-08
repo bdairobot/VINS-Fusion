@@ -108,7 +108,7 @@ void GlobalOptimization::optimize()
 {
     std::ofstream fout_time("/home/bdai/output/global_opt_param.txt", std::ios::out);
     fout_time.close();
-    static int min_size = 10, min_scale_size = 30, max_scale_size = 60;
+    static int min_size = 10, min_scale_size = 20, max_scale_size = 50;
     static int relate_opt_size = 30;
     while(true){
         if (localPoseMap.size() < uint(min_size)) {
@@ -156,7 +156,7 @@ void GlobalOptimization::optimize()
             problem.AddParameterBlock(mag_decl[0], 1);
             problem.AddParameterBlock(sim_scale, 1);
             static int opt_length = 2000;
-            if (!newGPS)
+            if (!newGPS || attMap.size() < max_scale_size)
                 problem.SetParameterBlockConstant(mag_decl[0]);
             if (length > opt_length){
                 for (int i = 0; i < length - opt_length; i++) {
@@ -248,7 +248,7 @@ void GlobalOptimization::optimize()
 		        // if (false) {
                 if (iterAtt != attMap.end()){
                     ceres::CostFunction* att_cost = attFactorAuto::Create(iterAtt->second[0], iterAtt->second[1], iterAtt->second[2],iterAtt->second[3], sqrt(iterAtt->second[4]));
-                    problem.AddResidualBlock(att_cost, nullptr, q_array[i], mag_decl[0]);
+                    problem.AddResidualBlock(att_cost, loss_function, q_array[i], mag_decl[0]);
                 }
             }
             mPoseMap.unlock();

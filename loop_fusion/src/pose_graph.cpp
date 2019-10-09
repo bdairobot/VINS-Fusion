@@ -185,7 +185,6 @@ void PoseGraph::addKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
         ofstream loop_path_file(VINS_RESULT_PATH, ios::app);
         loop_path_file.setf(ios::fixed, ios::floatfield);
         loop_path_file.precision(6);
-        loop_path_file.precision(0);
         loop_path_file << cur_kf->time_stamp<< " ";
         loop_path_file  << P.x() << " "
               << P.y() << " "

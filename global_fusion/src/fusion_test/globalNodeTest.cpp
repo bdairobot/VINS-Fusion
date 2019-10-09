@@ -569,10 +569,10 @@ int main(int argc, char **argv)
     }
     if (gp_odom_path.poses.size()){
         for (uint i = 0; i < gp_odom_path.poses.size(); i ++){
-            foutGPS.setf(ios::fixed, ios::floatfield);
-            foutGPS.precision(6);
-            foutGPS << gp_odom_path.poses[i].header.stamp.toSec()<< " ";
-            foutGPS << gp_odom_path.poses[i].pose.position.x << " "
+            foutGP.setf(ios::fixed, ios::floatfield);
+            foutGP.precision(6);
+            foutGP << gp_odom_path.poses[i].header.stamp.toSec()<< " ";
+            foutGP << gp_odom_path.poses[i].pose.position.x << " "
                     << gp_odom_path.poses[i].pose.position.y << " "
                     << gp_odom_path.poses[i].pose.position.z << " "
                     << gp_odom_path.poses[i].pose.orientation.x << " "

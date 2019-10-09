@@ -11,6 +11,7 @@
 #include "globalOptTest.h"
 #include <sensor_msgs/NavSatFix.h>
 #include <sensor_msgs/FluidPressure.h>
+#include <sensor_msgs/MagneticField.h>
 #include <sensor_msgs/Imu.h>
 #include <std_msgs/Header.h>
 #include <std_msgs/Bool.h>
@@ -46,9 +47,9 @@ GeographicLib::LocalCartesian geoConverter;
 // baro information: time, z, z_var
 queue<pair<double, vector<double>>> tmpBaroQueue;
 queue<pair<double, vector<double>>> tmpVIOQueue;
-queue<pair<double, vector<double>>> tmpAttQueue;
+queue<pair<double, vector<double>>> tmpMagQueue;
 
-// flag bit 0: gps, 1: baro, 2: att 3: vio
+// flag bit 0: gps, 1: baro, 2: mag 3: vio
 int init_flag = 0;
 int error_flag = 0;
 
@@ -59,14 +60,14 @@ static const float BETA_TABLE[5] = {0,
                     7.78
 				   };
 static double NOISE_BARO = 1.5;
-static double NOISE_ATT = 0.01;
+static double NOISE_MAG = 0.02;
 
 static uint BUF_DURATION = 5;
 
-// aligned GPS, Baro and Att data with VIO using time stamp
+// aligned GPS, Baro and Mag data with VIO using time stamp
 static map<double, vector<double>> map_GPS; // x,y,z,xy_var,z_var. position
 static map<double, vector<double>> map_Baro; // z, z_var. position
-static map<double, vector<double>> map_Att; // w, x, y, z. var
+static map<double, vector<double>> map_Mag; // w, x, y, z. var
 static double myeye_t = -1.0;
 static double gap_t = 0.0;
 static bool time_aligned = false;
@@ -265,8 +266,8 @@ void keyframe_callback(const nav_msgs::OdometryConstPtr &pose_msg)
             // std::cout << "map_Baro[kf_t]: " << map_Baro[kf_t][0] << ", " << map_Baro[kf_t][1] << ", " << map_Baro[kf_t][2] << std::endl;
             input_flag = true;
         }
-        if(map_Att.find(kf_t) != map_Att.end()){
-            globalEstimator.inputAtt(kf_t, map_Att[kf_t]);
+        if(map_Mag.find(kf_t) != map_Mag.end()){
+            globalEstimator.inputMag(kf_t, map_Mag[kf_t]);
             input_flag = true;
 	}
         if (input_flag){
@@ -299,32 +300,8 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
     }
     last_update_t = t;
 
-    if (!globalEstimator.att_init){
-        Eigen::Quaterniond att(1.0, 0.0, 0.0, 0.0);
-        if (!tmpAttQueue.empty()){
-            vector<double> att_info = tmpAttQueue.back().second;
-            att = Eigen::Quaterniond(att_info[0], att_info[1], att_info[2], att_info[3]);
-        } else {
-            static int i = 0; i++;
-            if(i >10) {i=0; std::cout << "Need att info to start..." << std::endl;}
-	    return;
-        }
-
-        globalEstimator.WGPS_T_WVIO.block<3,3>(0,0) = (att*vio_q.inverse()).toRotationMatrix();
-        globalEstimator.att_init = true;
-    }
-    if (!globalEstimator.pos_init){
-        Eigen::Vector3d init_pos(0.0,0.0,0.0);
-        if (tmpGPSQueue.size()>0 && (init_flag & 1<<0)){
-            init_pos(0) = tmpGPSQueue.back().second[0];
-            init_pos(1) = tmpGPSQueue.back().second[1];                
-        }
-        if (tmpBaroQueue.size()>0 && (init_flag & 1 << 1))
-            init_pos(2) = tmpBaroQueue.back().second[0]; 
-        
-        globalEstimator.WGPS_T_WVIO.block<3,1>(0,3) = init_pos - globalEstimator.WGPS_T_WVIO.block<3,3>(0,0)*vio_p;
-        globalEstimator.pos_init = true;
-    }
+    globalEstimator.att_init = true;
+    globalEstimator.pos_init = true;
 
     //printf("vio_callback! ");
     // int vio_error_flag = int(-pose_msg->pose.covariance[0]);
@@ -385,24 +362,24 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
     }
     //std::cout << "map_Baro.size()" << map_Baro.size() << " tmpBaroQueue.size(): " <<tmpBaroQueue.size() << " t: " << t << " baro_t: " << tmpBaroQueue.back().first << "t-barot: " << t-tmpBaroQueue.back().first << std::endl;
 
-    { // align with att
+    { // align with mag
         static uint step = 10;
-        while(!tmpAttQueue.empty()){
-            double att_t = tmpAttQueue.front().first;
-            if (t < att_t - 0.02 && (tmpAttQueue.size() == 50*BUF_DURATION)){
-                ROS_ERROR("VIO is away behind ATT information! ");
+        while(!tmpMagQueue.empty()){
+            double mag_t = tmpMagQueue.front().first;
+            if (t < mag_t - 0.02 && (tmpMagQueue.size() == 50*BUF_DURATION)){
+                ROS_ERROR("VIO is away behind MAG information! ");
                 assert(0);
-            } else if (t <= att_t + 0.02 && t >= att_t - 0.02){
+            } else if (t <= mag_t + 0.02 && t >= mag_t - 0.02){
                 map_buf.lock();
-                if (map_Att.size() == duration*step)
-                    map_Att.erase(map_Att.begin());
+                if (map_Mag.size() == duration*step)
+                    map_Mag.erase(map_Mag.begin());
 
-                map_Att[t] = tmpAttQueue.front().second;
+                map_Mag[t] = tmpMagQueue.front().second;
                 map_buf.unlock();
-                tmpAttQueue.pop();
+                tmpMagQueue.pop();
                 break;
-            } else if (t - att_t > 0.02){
-                tmpAttQueue.pop();
+            } else if (t - mag_t > 0.02){
+                tmpMagQueue.pop();
                 continue;
             } else break;
         }
@@ -471,16 +448,16 @@ void myeye_imu_callback(const sensor_msgs::ImuConstPtr &imu_msg){
     myeye_t = imu_msg->header.stamp.toSec();
 }
 
-void imu_callback(const sensor_msgs::ImuConstPtr &imu_msg){
+void mag_callback(const sensor_msgs::MagneticField::ConstPtr &mag_msg){
     if (!time_aligned) return;
-    double att_t = imu_msg->header.stamp.toSec();
+    double mag_t = mag_msg->header.stamp.toSec();
     m_buf.lock();
-    vector<double> att_info = {imu_msg->orientation.w, imu_msg->orientation.x, imu_msg->orientation.y, imu_msg->orientation.z, NOISE_ATT*NOISE_ATT};
-    tmpAttQueue.push(make_pair(att_t, att_info));
+    vector<double> mag_info = {mag_msg->magnetic_field.x, mag_msg->magnetic_field.y, mag_msg->magnetic_field.z, NOISE_MAG*NOISE_MAG};
+    tmpMagQueue.push(make_pair(mag_t, mag_info));
     m_buf.unlock();
 
-    if(tmpAttQueue.size() > 50*BUF_DURATION)
-        tmpAttQueue.pop();
+    if(tmpMagQueue.size() > 50*BUF_DURATION)
+        tmpMagQueue.pop();
 }
 
 void gp_odom_callback(nav_msgs::Odometry::ConstPtr gp_odom)
@@ -506,7 +483,7 @@ int main(int argc, char **argv)
     ros::Subscriber sub_kf = n.subscribe("/vins_estimator/keyframe_pose", 200, keyframe_callback);
     ros::Subscriber sub_vio = n.subscribe("/vins_estimator/odometry", 200, vio_callback);
     sub_myeye_imu = n.subscribe("/mynteye/imu/data_raw", 1000, myeye_imu_callback);
-    ros::Subscriber sub_imu = n.subscribe("/mavros/imu/data", 1000, imu_callback);
+    ros::Subscriber sub_imu = n.subscribe("/mavros/imu/mag", 1000, mag_callback);
     ros::Subscriber sub_gp_odom = n.subscribe("/mavros/global_position/local", 100, gp_odom_callback);
 
     pub_global_path = n.advertise<nav_msgs::Path>("global_path", 1000);

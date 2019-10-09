@@ -452,7 +452,8 @@ void mag_callback(const sensor_msgs::MagneticField::ConstPtr &mag_msg){
     if (!time_aligned) return;
     double mag_t = mag_msg->header.stamp.toSec();
     m_buf.lock();
-    vector<double> mag_info = {mag_msg->magnetic_field.x, mag_msg->magnetic_field.y, mag_msg->magnetic_field.z, NOISE_MAG*NOISE_MAG};
+    double norm  = sqrt(mag_msg->magnetic_field.x*mag_msg->magnetic_field.x + mag_msg->magnetic_field.y*mag_msg->magnetic_field.y + mag_msg->magnetic_field.z* mag_msg->magnetic_field.z);
+    vector<double> mag_info = {mag_msg->magnetic_field.x / norm, mag_msg->magnetic_field.y / norm, mag_msg->magnetic_field.z / norm, NOISE_MAG*NOISE_MAG};
     tmpMagQueue.push(make_pair(mag_t, mag_info));
     m_buf.unlock();
 

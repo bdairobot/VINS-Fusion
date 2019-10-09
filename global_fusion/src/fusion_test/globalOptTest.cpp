@@ -108,8 +108,8 @@ void GlobalOptimization::optimize()
 {
     std::ofstream fout_time("/home/bdai/output/global_opt_param.txt", std::ios::out);
     fout_time.close();
-    static int min_size = 1, min_scale_size = 1, max_scale_size = 1;
-    static int relate_opt_size = 1;
+    static int min_size = 10, min_scale_size = 20, max_scale_size = 50;
+    static int relate_opt_size = 30;
     while(true){
         if (localPoseMap.size() < uint(min_size)) {
             static int i = 0; i++;
@@ -221,21 +221,21 @@ void GlobalOptimization::optimize()
                 double t = iterVIO->first;
 
                 /* gps factor */
-                //iterGPS = GPSPositionMap.find(t);
-                //if (iterGPS != GPSPositionMap.end()){
-                //    GPSFactor* gps_cost = new GPSFactor(iterGPS->second[0], iterGPS->second[1], iterGPS->second[2], sqrt(iterGPS->second[3]), 100);
-                //    problem.AddResidualBlock(gps_cost, loss_function, t_array_xy[i], t_array_z[i]);
-                //    if (i >= length - max_scale_size) {
-                //       update_scale = (update_scale && (length  >= min_scale_size) && (
-                //            (iterGPS->second[3] < 16 && iterGPS->second[3] >= 9 && iterGPS->second[5]<0.15) || 
-                //            (iterGPS->second[3] < 9 && iterGPS->second[3] >= 4 && iterGPS->second[5]<0.1) || 
-                //            (iterGPS->second[3] < 4  && iterGPS->second[5]<0.05)));
-                //    }
+                iterGPS = GPSPositionMap.find(t);
+                if (iterGPS != GPSPositionMap.end()){
+                    GPSFactor* gps_cost = new GPSFactor(iterGPS->second[0], iterGPS->second[1], iterGPS->second[2], sqrt(iterGPS->second[3]), 100);
+                    problem.AddResidualBlock(gps_cost, loss_function, t_array_xy[i], t_array_z[i]);
+                    if (i >= length - max_scale_size) {
+                       update_scale = (update_scale && (length  >= min_scale_size) && (
+                            (iterGPS->second[3] < 16 && iterGPS->second[3] >= 9 && iterGPS->second[5]<0.15) || 
+                           (iterGPS->second[3] < 9 && iterGPS->second[3] >= 4 && iterGPS->second[5]<0.1) || 
+                            (iterGPS->second[3] < 4  && iterGPS->second[5]<0.05)));
+                    }
                     // double **param = new double* [2];
                     // param[0] = t_array_xy[i];
                     // param[1] = t_array_z[i];
                     // gps_cost->check(param);
-                //}
+                }
                 // /* baro factor */
                 // iterBaro = baroMap.find(t);
                 // if (iterBaro != baroMap.end()){
@@ -248,7 +248,7 @@ void GlobalOptimization::optimize()
 		        // if (false) {
                 if (iterMag != magMap.end()){
                     ceres::CostFunction* mag_cost = magFactorAuto::Create(iterMag->second[0], iterMag->second[1], iterMag->second[2], sqrt(iterMag->second[3]));
-                    problem.AddResidualBlock(mag_cost, nullptr, q_array[i]);
+                    problem.AddResidualBlock(mag_cost, loss_function, q_array[i]);
                 }
             }
             mPoseMap.unlock();
@@ -256,7 +256,7 @@ void GlobalOptimization::optimize()
             if (!update_scale || !newGPS) 
                 problem.SetParameterBlockConstant(sim_scale);
             ceres::Solve(options, &problem, &summary);
-            std::cout << summary.BriefReport() << "\n";
+            //std::cout << summary.BriefReport() << "\n";
 
             // update global pose
             mPoseMap.lock();

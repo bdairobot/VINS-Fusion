@@ -67,6 +67,7 @@ static uint BUF_DURATION = 5;
 static map<double, vector<double>> map_GPS; // x,y,z,xy_var,z_var. position
 static map<double, vector<double>> map_Baro; // z, z_var. position
 static map<double, vector<double>> map_Att; // w, x, y, z. var
+static map<double, vector<double>> map_VIO_2G; // x_w, y_w, z_w, xyz_var, q_var
 static double myeye_t = -1.0;
 static double gap_t = 0.0;
 static bool time_aligned = false;
@@ -296,6 +297,7 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
     if (t - last_update_t > 0.25) {
        globalEstimator.restart(); // vins restarted
        std::cout << "No vio info for " << t - last_update_t << std::endl;
+       map_VIO_2G.clear();
     }
     last_update_t = t;
 
@@ -409,7 +411,7 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
     }
 
     { // check with gps
-        static uint step = 5;
+        static uint step = 10;
         if (init_flag & 1<<0){
             while(!tmpGPSQueue.empty()){
                 pair<double, vector<double>> GPS_info = tmpGPSQueue.front();
@@ -430,10 +432,13 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
                     assert(0);
                 } else if (t <= gps_t + 0.1 && t >= gps_t - 0.1){
                     map_buf.lock();
-                    if (map_GPS.size() == duration*step)
+                    if (map_GPS.size() == duration*step){
                         map_GPS.erase(map_GPS.begin());
+                        map_VIO_2G.erase(map_VIO_2G.begin());
+                    }
 
                     map_GPS[t] = GPS_info.second;
+                    map_VIO_2G[t] = {global_t.x(), global_t.y(), global_t.z(), pose_msg->pose.covariance[0], pose_msg->pose.covariance[28]};
                     last_pop = GPS_info;
                     // tmpGPSQueue.pop();
                     pop_flag = true;
@@ -449,10 +454,13 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
                 if(pop_flag && t < gps_t+0.2 && t > last_pop.first && gps_t - last_pop.first > 0){
                     Eigen::Vector3d insert_gps_pose = gps_pose - (gps_t - t)/(gps_t - last_pop.first)*(gps_pose - Eigen::Vector3d{last_pop.second[0],last_pop.second[1],last_pop.second[2]});
                     map_buf.lock();
-                    if (map_GPS.size() == duration*step)
+                    if (map_GPS.size() == duration*step){
                         map_GPS.erase(map_GPS.begin());
+                        map_VIO_2G.erase(map_VIO_2G.begin());
+                    }
 
                     map_GPS[t] = vector<double> {insert_gps_pose(0), insert_gps_pose(1), insert_gps_pose(2), GPS_info.second[3], GPS_info.second[4]};
+                    map_VIO_2G[t] = {global_t.x(), global_t.y(), global_t.z(), pose_msg->pose.covariance[0], pose_msg->pose.covariance[28]};
                     last_pop = GPS_info;
                     // tmpGPSQueue.pop();
                     pop_flag = true;
@@ -462,6 +470,21 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
                     // ROS_INFO("t-gps_t: %8.4f, t - last_pop.first: %8.4f", t-gps_t, t - last_pop.first);
                     break;
                 };
+            }
+            //GPS check
+            {  
+                if (map_VIO_2G.size() == duration*step){
+                    auto iter_back = map_VIO_2G.rbegin();
+                    for (int i = 0; i < 10; i++) iter_back++;
+                    auto iter_front = map_VIO_2G.begin();
+                    for (int i = 0; i < 10; i++, iter_front++, iter_back--){
+                        Eigen::Vector2d vio(iter_back->second[0] - iter_front->second[0], iter_back->second[1]-iter_front->second[1]);
+                        Eigen::Vector2d gps(map_GPS[iter_back->first][0] - map_GPS[iter_front->first][0], map_GPS[iter_back->first][1] - map_GPS[iter_front->first][1]);
+                        double chi_value = (gps - vio).norm() /(map_GPS[iter_back->first][3]+iter_back->second[3]);
+                        if (chi_value > 0.15)
+                            std::cout << "Chi value: " << chi_value << std::endl;
+                    }
+                }
             }
         }
     }

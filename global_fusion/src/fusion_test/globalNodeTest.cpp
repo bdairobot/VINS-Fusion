@@ -507,7 +507,7 @@ int main(int argc, char **argv)
     ros::Subscriber sub_vio = n.subscribe("/vins_estimator/odometry", 200, vio_callback);
     sub_myeye_imu = n.subscribe("/mynteye/imu/data_raw", 1000, myeye_imu_callback);
     ros::Subscriber sub_imu = n.subscribe("/mavros/imu/data", 1000, imu_callback);
-    ros::Subscriber sub_gp_odom = n.subscribe("/mavros/global_position/local", 100, gp_odom_callback);
+    ros::Subscriber sub_gp_odom = n.subscribe("/mavros/local_position/odom", 100, gp_odom_callback);
 
     pub_global_path = n.advertise<nav_msgs::Path>("global_path", 1000);
     pub_global_kf_path = n.advertise<nav_msgs::Path>("global_kf_path", 1000);

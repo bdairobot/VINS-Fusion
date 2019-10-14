@@ -108,7 +108,7 @@ void GlobalOptimization::optimize()
 {
     std::ofstream fout_time("/home/bdai/output/global_opt_param.txt", std::ios::out);
     fout_time.close();
-    static int min_size = 10, min_scale_size = 20, max_scale_size = 50;
+    static int min_size = 10, min_scale_size = 30, max_scale_size = 60;
     static int relate_opt_size = 30;
     while(true){
         if (localPoseMap.size() < uint(min_size)) {
@@ -237,11 +237,11 @@ void GlobalOptimization::optimize()
                     // gps_cost->check(param);
                 }
                 // /* baro factor */
-                iterBaro = baroMap.find(t);
-                if (iterBaro != baroMap.end()){
-                    BaroFactor* baro_cost = new BaroFactor(iterBaro->second[0], sqrt(iterBaro->second[1]));
-                    problem.AddResidualBlock(baro_cost, loss_function, t_array_z[i]);
-                }
+                //iterBaro = baroMap.find(t);
+                //if (iterBaro != baroMap.end()){
+                //    BaroFactor* baro_cost = new BaroFactor(iterBaro->second[0], sqrt(iterBaro->second[1]));
+                //    problem.AddResidualBlock(baro_cost, loss_function, t_array_z[i]);
+                //}
 
                 /* att factor */
                 iterAtt = attMap.find(t);

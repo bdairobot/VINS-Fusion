@@ -11,6 +11,7 @@
 
 #include "globalOpt.h"
 #include "Factors.h"
+#include <fstream>
 
 GlobalOptimization::GlobalOptimization()
 {
@@ -90,6 +91,7 @@ void GlobalOptimization::inputGPS(double t, double latitude, double longitude, d
 
 void GlobalOptimization::optimize()
 {
+    std::ofstream fout_time("/home/bdai/output/vins-fusion_global_opt_param.txt", std::ios::out);
     while(true)
     {
         if(newGPS)
@@ -214,7 +216,7 @@ void GlobalOptimization::optimize()
             }
             //mPoseMap.unlock();
             ceres::Solve(options, &problem, &summary);
-            std::cout << summary.BriefReport() << "\n";
+            //std::cout << summary.BriefReport() << "\n";
 
             // update global pose
             //mPoseMap.lock();
@@ -239,8 +241,13 @@ void GlobalOptimization::optimize()
             	}
             }
             updateGlobalPath();
-            //printf("global time %f \n", globalOptimizationTime.toc());
+            printf("global time %f \n", globalOptimizationTime.toc());
             mPoseMap.unlock();
+            ofstream fout_time("/home/bdai/output/vins-fusion_global_opt_param.txt", std::ios::app);
+            fout_time.setf(ios::fixed, ios::floatfield);
+            fout_time.precision(6);
+            fout_time << localPoseMap.rbegin()->first << " " << globalOptimizationTime.toc() << endl;
+            fout_time.close();
         }
         std::chrono::milliseconds dura(100);
         std::this_thread::sleep_for(dura);

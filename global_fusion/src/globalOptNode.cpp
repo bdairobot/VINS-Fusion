@@ -160,16 +160,31 @@ void vio_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
 
 int main(int argc, char **argv)
 {
-    ros::init(argc, argv, "globalEstimator");
+    ros::init(argc, argv, "globalEstimatorNode");
     ros::NodeHandle n("~");
 
     global_path = &globalEstimator.global_path;
+    std::ofstream fout("/home/bdai/output/vins-fusion_global_path.txt", std::ios::out);
 
     ros::Subscriber sub_GPS = n.subscribe("/mavros/global_position/raw/fix", 100, GPS_callback);
-    ros::Subscriber sub_vio = n.subscribe("/vins_estimator/keyframe_pose", 100, vio_callback);
+    ros::Subscriber sub_vio = n.subscribe("/vins_estimator/odometry", 100, vio_callback);
     pub_global_path = n.advertise<nav_msgs::Path>("global_path", 100);
     pub_global_odometry = n.advertise<nav_msgs::Odometry>("global_odometry", 100);
     pub_car = n.advertise<visualization_msgs::MarkerArray>("car_model", 1000);
     ros::spin();
+    if (global_path->poses.size()){
+        for (uint i = 0; i < global_path->poses.size(); i ++){
+            fout.setf(ios::fixed, ios::floatfield);
+            fout.precision(6);
+            fout << global_path->poses[i].header.stamp.toSec()<< " ";
+            fout << global_path->poses[i].pose.position.x << " "
+                   << global_path->poses[i].pose.position.y << " "
+                   << global_path->poses[i].pose.position.z << " "
+                   << global_path->poses[i].pose.orientation.x << " "
+                   << global_path->poses[i].pose.orientation.y << " "
+                   << global_path->poses[i].pose.orientation.z << " "
+                   << global_path->poses[i].pose.orientation.w << endl;
+        }
+    }
     return 0;
 }

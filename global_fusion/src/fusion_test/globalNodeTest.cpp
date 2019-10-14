@@ -71,6 +71,7 @@ static map<double, vector<double>> map_VIO_2G; // x_w, y_w, z_w, xyz_var, q_var
 static double myeye_t = -1.0;
 static double gap_t = 0.0;
 static bool time_aligned = false;
+static bool restart_flag = false;
 
 class DataAnalyses {
 public:
@@ -332,15 +333,16 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
     // int vio_error_flag = int(-pose_msg->pose.covariance[0]);
     // if ((vio_error_flag & 1<<3) || (vio_error_flag & 1<<1)){
     //     return;
-    //     std_msgs::Bool restart_flag;
-    //     restart_flag.data = true;
+    if (restart_flag){
+         std_msgs::Bool restart_flag;
+         restart_flag.data = true;
         
-    //     pub_vins_restart.publish(restart_flag);
-    //     globalEstimator.restart();
-    //     ROS_INFO("restarting optimization! ");
-    //     return;
-    // }
-    // error_flag &= ~(1<<3);
+         pub_vins_restart.publish(restart_flag);
+         globalEstimator.restart();
+         ROS_INFO("restarting optimization! ");
+         return;
+     }
+    error_flag &= ~(1<<3);
     
     Eigen::Vector3d global_t;
     Eigen::Quaterniond global_q;
@@ -438,7 +440,9 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
                     }
 
                     map_GPS[t] = GPS_info.second;
-                    map_VIO_2G[t] = {global_t.x(), global_t.y(), global_t.z(), pose_msg->pose.covariance[0], pose_msg->pose.covariance[28]};
+                    //map_VIO_2G[t] = {global_t.x(), global_t.y(), global_t.z(), pose_msg->pose.covariance[0], pose_msg->pose.covariance[28]};
+                    Eigen::Vector3d pos = globalEstimator.WGPS_T_WVIO.block<3,3>(0,0)*vio_p;
+                    map_VIO_2G[t] = {pos.x(), pos.y(), pos.z(), pose_msg->pose.covariance[0], pose_msg->pose.covariance[28]};
                     last_pop = GPS_info;
                     // tmpGPSQueue.pop();
                     pop_flag = true;
@@ -477,13 +481,17 @@ void vio_callback(const nav_msgs::OdometryConstPtr &pose_msg)
                     auto iter_back = map_VIO_2G.rbegin();
                     for (int i = 0; i < 10; i++) iter_back++;
                     auto iter_front = map_VIO_2G.begin();
+                    int counter[3] = {0, 0, 0};
                     for (int i = 0; i < 10; i++, iter_front++, iter_back--){
                         Eigen::Vector2d vio(iter_back->second[0] - iter_front->second[0], iter_back->second[1]-iter_front->second[1]);
                         Eigen::Vector2d gps(map_GPS[iter_back->first][0] - map_GPS[iter_front->first][0], map_GPS[iter_back->first][1] - map_GPS[iter_front->first][1]);
                         double chi_value = (gps - vio).norm() /(map_GPS[iter_back->first][3]+iter_back->second[3]);
-                        if (chi_value > 0.15)
-                            std::cout << "Chi value: " << chi_value << std::endl;
+                        if (chi_value >= 1) counter[0]++;
+			if (chi_value >= 0.45) counter[1]++;
+			if (chi_value >= 0.35) counter[2]++;
                     }
+		    if (counter[0] >1 || counter[1] > 5 || counter[2] > 7)
+			std::cout << "Restarting" << std::endl;
                 }
             }
         }

@@ -266,6 +266,19 @@ void GlobalOptimization::optimize()
             	vector<double> globalPose{t_array_xy[i][0], t_array_xy[i][1], t_array_z[i][0],
             							  q_array[i][0], q_array[i][1], q_array[i][2], q_array[i][3]};
             	iter->second = globalPose;
+            	//if(i == length - 3)
+            	//{
+            	//    Eigen::Matrix4d WVIO_T_body = Eigen::Matrix4d::Identity(); 
+            	//   Eigen::Matrix4d WGPS_T_body = Eigen::Matrix4d::Identity();
+            	//    double t = iter->first;
+            	//    WVIO_T_body.block<3, 3>(0, 0) = Eigen::Quaterniond(localPoseMap[t][3], localPoseMap[t][4], 
+            	//                                                       localPoseMap[t][5], localPoseMap[t][6]).toRotationMatrix();
+            	//    WVIO_T_body.block<3, 1>(0, 3) = Eigen::Vector3d(localPoseMap[t][0], localPoseMap[t][1], localPoseMap[t][2]);
+            	//    WGPS_T_body.block<3, 3>(0, 0) = Eigen::Quaterniond(globalPose[3], globalPose[4], 
+            	//                                                        globalPose[5], globalPose[6]).toRotationMatrix();
+            	//   WGPS_T_body.block<3, 1>(0, 3) = Eigen::Vector3d(globalPose[0], globalPose[1], globalPose[2]);
+            	//    WGPS_T_WVIO = WGPS_T_body * WVIO_T_body.inverse();
+            	//}
             }
             mPoseMap.unlock();
             // do ransac
@@ -276,7 +289,6 @@ void GlobalOptimization::optimize()
             auto it = globalPoseMap.rbegin();
             for (int j = 0; j < local_size; j++, it++)
                 t_buff[j] = it->first;
-           
 
             TicToc local_opt_time;
             if (length < relate_opt_size || true) {
@@ -285,7 +297,7 @@ void GlobalOptimization::optimize()
                 options_l.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
                 options_l.max_num_iterations = 5;
                 ceres::Solver::Summary summary_l;
-                ceres::LossFunction *loss_function_l = new ceres::HuberLoss(0.5);
+                ceres::LossFunction *loss_function_l = new ceres::HuberLoss(2);
                 ceres::LocalParameterization* local_parameterization_l = new ceres::QuaternionParameterization();
                 double q_relate[4];
                 double t_relate[3];

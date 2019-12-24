@@ -253,7 +253,7 @@ void GlobalOptimization::optimize()
             }
             mPoseMap.unlock();
 
-            if (!update_scale || !newGPS) 
+            //if (!update_scale || !newGPS) 
                 problem.SetParameterBlockConstant(sim_scale);
             ceres::Solve(options, &problem, &summary);
             // std::cout << summary.BriefReport() << "\n";
@@ -506,7 +506,7 @@ void GlobalOptimization::optimize()
             ofstream fout_time("/home/bdai/output/global_opt_param.txt", std::ios::app);
             fout_time.setf(ios::fixed, ios::floatfield);
             fout_time.precision(6);
-            fout_time << localPoseMap.rbegin()->first << " " << globalOptimizationTime.toc() << " " << local_opt_time.toc() << " " << sim_scale[0] << " " << localPoseMap.size()<< endl;
+            fout_time << localPoseMap.rbegin()->first << " " << globalOptimizationTime.toc() << " " << local_opt_time.toc() << " " << sim_scale[0] << " " << mag_decl[0][0] * 180.0/3.14159 << " "<< localPoseMap.size()<< endl;
             fout_time.close();
         }
         std::chrono::milliseconds dura(100);
